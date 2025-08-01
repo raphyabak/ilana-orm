@@ -1,0 +1,72 @@
+# Source files
+*.ts
+!*.d.ts
+
+# Development files
+tsconfig.json
+.env
+.env.*
+
+# Test files
+**/*.test.js
+**/*.spec.js
+test/
+tests/
+__tests__/
+
+# Development directories
+src/
+examples/
+docs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+.nyc_output/
+
+# node-waf configuration
+.lock-wscript
+
+# Compiled binary addons
+build/Release/
+
+# Dependency directories
+node_modules/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+
+# Git
+.git/
+.gitignore
