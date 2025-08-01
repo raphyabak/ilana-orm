@@ -15,6 +15,9 @@
   },
   "keywords": [
     "orm",
+    "nodejs",
+    "javascript",
+    "typescript-orm",
     "typescript",
     "database",
     "eloquent",
@@ -38,7 +41,8 @@
   "files": [
     "dist/**/*",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "ilana.png"
   ],
   "dependencies": {
     "knex": "^3.0.0"

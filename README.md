@@ -1,4 +1,7 @@
-# IlanaORM
+<div align="center">
+  <img src="ilana.png" alt="IlanaORM Logo" width="200" height="200">
+  <h1>IlanaORM</h1>
+</div>
 
 **Ìlànà** (pronounced "ee-LAH-nah") - A Yoruba word meaning "pattern," "system," or "protocol."
 
