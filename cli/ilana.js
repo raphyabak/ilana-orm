@@ -1,23 +1,24 @@
 #!/usr/bin/env node
 
-import * as fs from 'fs';
-import * as path from 'path';
-import Database from '../database/connection';
-import MigrationRunner from '../orm/MigrationRunner';
-
-interface ModelOptions {
-  migration?: boolean;
-  factory?: boolean;
-  seed?: boolean;
-  pivot?: boolean;
-  all?: boolean;
-}
+const fs = require('fs');
+const path = require('path');
+const Database = require('../database/connection');
+const MigrationRunner = require('../orm/MigrationRunner');
 
 // Default database configuration
 const defaultConfig = {
-  client: 'sqlite3' as const,
-  connection: {
-    filename: './database.sqlite'
+  default: 'mysql',
+  connections: {
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: 'localhost',
+        port: 3306,
+        user: 'root',
+        password: '',
+        database: 'ilana_orm'
+      }
+    }
   },
   migrations: {
     directory: './migrations',
@@ -33,13 +34,13 @@ function loadConfig() {
   const configPath = path.join(process.cwd(), 'ilana.config.js');
   if (fs.existsSync(configPath)) {
     delete require.cache[configPath];
-    const config = require(configPath).default || require(configPath);
+    const config = require(configPath);
     // Config file already initializes database
     return config;
   }
-  // Fallback to default and initialize
-  Database.configure(defaultConfig);
-  return defaultConfig;
+  // No config file found - don't initialize with hardcoded default
+  console.error('No ilana.config.js found. Run "npx ilana setup" first.');
+  process.exit(1);
 }
 
 // Initialize database
@@ -48,25 +49,38 @@ function initializeDatabase() {
 }
 
 // Helper functions
-function toPascalCase(str: string): string {
+function isTypeScriptProject() {
+  return fs.existsSync(path.join(process.cwd(), 'tsconfig.json'));
+}
+
+function getFileExtension() {
+  return isTypeScriptProject() ? '.ts' : '.js';
+}
+
+function toPascalCase(str) {
   return str.replace(/(^|_)(.)/g, (_, __, char) => char.toUpperCase());
 }
 
-function toSnakeCase(str: string): string {
+function toSnakeCase(str) {
   return str.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
 }
 
-function pluralize(str: string): string {
+function pluralize(str) {
   if (str.endsWith('y')) return str.slice(0, -1) + 'ies';
   if (str.endsWith('s')) return str + 'es';
   return str + 's';
 }
 
-function generateModel(name: string, options: ModelOptions = {}): void {
+function generateModel(name, options = {}) {
   const className = toPascalCase(name);
   const tableName = pluralize(toSnakeCase(name));
-  const fileName = `${className}.ts`;
+  const fileName = `${className}${getFileExtension()}`;
   const filePath = path.join(process.cwd(), 'models', fileName);
+
+  if (fs.existsSync(filePath)) {
+    console.error(`Model ${className} already exists at models/${fileName}`);
+    process.exit(1);
+  }
 
   if (!fs.existsSync(path.dirname(filePath))) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -91,9 +105,10 @@ function generateModel(name: string, options: ModelOptions = {}): void {
   }
 }
 
-function getModelTemplate(className: string, tableName: string): string {
-  return `import Model from '../orm/Model';
-// import { MoneyCast, EncryptedCast } from '../orm/CustomCasts';
+function getModelTemplate(className, tableName) {
+  if (isTypeScriptProject()) {
+    return `import Model from 'ilana-orm/orm/Model';
+// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
@@ -106,6 +121,7 @@ export default class ${className} extends Model {
 
   protected fillable: string[] = [];
   protected hidden: string[] = [];
+  protected appends: string[] = [];
   protected casts = {
     // Basic casts
     // is_active: 'boolean' as const,
@@ -117,18 +133,13 @@ export default class ${className} extends Model {
     // secret: new EncryptedCast('your-key'),
   };
 
-  // Define your attributes here
-  id!: number; // Change to string for UUID
-  created_at!: Date;
-  updated_at!: Date;
-
   // Define relationships here
   // example() {
   //   return this.hasMany(RelatedModel, 'foreign_key');
   // }
 
   // Define scopes here
-  // static scopeActive(query: any): void {
+  // static scopeActive(query: any) {
   //   query.where('is_active', true);
   // }
   
@@ -138,10 +149,57 @@ export default class ${className} extends Model {
   // }
 }
 `;
+  }
+  
+  return `const Model = require('ilana-orm/orm/Model');
+// const { MoneyCast, EncryptedCast } = require('ilana-orm/orm/CustomCasts');
+
+class ${className} extends Model {
+  static table = '${tableName}';
+  static timestamps = true;
+  static softDeletes = false;
+  
+  // For UUID primary keys, uncomment:
+  // static keyType = 'string';
+  // static incrementing = false;
+
+  fillable = [];
+  hidden = [];
+  appends = [];
+  casts = {
+    // Basic casts
+    // is_active: 'boolean',
+    // metadata: 'json',
+    // tags: 'array',
+    
+    // Custom casts
+    // price: new MoneyCast(),
+    // secret: new EncryptedCast('your-key'),
+  };
+
+  // Define relationships here
+  // example() {
+  //   return this.hasMany(RelatedModel, 'foreign_key');
+  // }
+
+  // Define scopes here
+  // static scopeActive(query) {
+  //   query.where('is_active', true);
+  // }
+  
+  // Register for polymorphic relationships
+  // static {
+  //   this.register();
+  // }
 }
 
-function getPivotModelTemplate(className: string, tableName: string): string {
-  return `import Model from '../orm/Model';
+module.exports = ${className};
+`;
+}
+
+function getPivotModelTemplate(className, tableName) {
+  if (isTypeScriptProject()) {
+    return `import Model from 'ilana-orm/orm/Model';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
@@ -149,28 +207,51 @@ export default class ${className} extends Model {
   
   protected fillable: string[] = [];
 
-  // Pivot model attributes
-  id!: number;
-  created_at!: Date;
-  updated_at!: Date;
-
   // Define pivot relationships here
 }
 `;
+  }
+  
+  return `const Model = require('ilana-orm/orm/Model');
+
+class ${className} extends Model {
+  static table = '${tableName}';
+  static timestamps = true;
+  
+  fillable = [];
+
+  // Define pivot relationships here
 }
 
-function generateFactory(className: string): void {
-  const fileName = `${className}Factory.ts`;
-  const filePath = path.join(process.cwd(), 'factories', fileName);
+module.exports = ${className};
+`;
+}
+
+function generateFactory(className) {
+  const fileName = `${className}Factory${getFileExtension()}`;
+  const filePath = path.join(process.cwd(), 'database/factories', fileName);
 
   if (!fs.existsSync(path.dirname(filePath))) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
 
-  const template = `import { defineFactory } from '../orm/Factory';
-import ${className} from '../models/${className}';
+  const template = isTypeScriptProject() ?
+    `import { defineFactory } from 'ilana-orm/orm/Factory';
+import ${className} from '../../models/${className}';
 
 export default defineFactory(${className}, (faker) => ({
+  // Define your factory attributes here
+  // name: faker.person.fullName(),
+  // email: faker.internet.email(),
+}))
+.state('example', (faker) => ({
+  // Define state modifications here
+}));
+` :
+    `const { defineFactory } = require('ilana-orm/orm/Factory');
+const ${className} = require('../../models/${className}');
+
+module.exports = defineFactory(${className}, (faker) => ({
   // Define your factory attributes here
   // name: faker.person.fullName(),
   // email: faker.internet.email(),
@@ -184,16 +265,17 @@ export default defineFactory(${className}, (faker) => ({
   console.log(`Created factory: factories/${fileName}`);
 }
 
-function generateSeeder(className: string): void {
-  const fileName = `${className}Seeder.ts`;
-  const filePath = path.join(process.cwd(), 'seeds', fileName);
+function generateSeeder(className) {
+  const fileName = `${className}Seeder${getFileExtension()}`;
+  const filePath = path.join(process.cwd(), 'database/seeds', fileName);
 
   if (!fs.existsSync(path.dirname(filePath))) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
 
-  const template = `import Seeder from '../orm/Seeder';
-import ${className} from '../models/${className}';
+  const template = isTypeScriptProject() ?
+    `import Seeder from 'ilana-orm/orm/Seeder';
+import ${className} from '../../models/${className}';
 import '../factories/${className}Factory';
 
 export default class ${className}Seeder extends Seeder {
@@ -206,6 +288,23 @@ export default class ${className}Seeder extends Seeder {
     console.log('${className}s seeded successfully');
   }
 }
+` :
+    `const Seeder = require('ilana-orm/orm/Seeder');
+const ${className} = require('../../models/${className}');
+require('../factories/${className}Factory');
+
+class ${className}Seeder extends Seeder {
+  async run() {
+    console.log('Seeding ${className.toLowerCase()}s...');
+
+    // Create sample data
+    await ${className}.factory().times(10).create();
+
+    console.log('${className}s seeded successfully');
+  }
+}
+
+module.exports = ${className}Seeder;
 `;
 
   fs.writeFileSync(filePath, template);
@@ -216,73 +315,66 @@ export default class ${className}Seeder extends Seeder {
 const commands = {
   async setup() {
     console.log('Setting up Ilana ORM...');
-    
+
     // Create directories
-    const dirs = ['models', 'migrations', 'factories', 'seeds'];
+    const dirs = ['models', 'database/migrations', 'database/factories', 'database/seeds'];
     for (const dir of dirs) {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
         console.log(`Created directory: ${dir}/`);
       }
     }
-    
+
     // Create config file if it doesn't exist
     const configPath = 'ilana.config.js';
     if (!fs.existsSync(configPath)) {
-      const configTemplate = `const Database = require('ilana/database/connection').default;
+      const configTemplate = `require('dotenv').config();
+const Database = require('ilana-orm/database/connection');
 
 const config = {
-  default: 'sqlite',
+  default: process.env.DB_CONNECTION || 'mysql',
+  timezone: process.env.DB_TIMEZONE || 'UTC',
   
   connections: {
     sqlite: {
       client: 'sqlite3',
       connection: {
-        filename: './database.sqlite'
+        filename: process.env.DB_FILENAME || './database.sqlite'
+      },
+      useNullAsDefault: true
+    },
+    
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 3306,
+        user: process.env.DB_USERNAME || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database',
+        timezone: process.env.DB_TIMEZONE || 'UTC'
       }
     },
     
-    // mysql: {
-    //   client: 'mysql2',
-    //   connection: {
-    //     host: 'localhost',
-    //     port: 3306,
-    //     user: 'your_username',
-    //     password: 'your_password',
-    //     database: 'your_database'
-    //   }
-    // },
-    
-    // postgres: {
-    //   client: 'pg',
-    //   connection: {
-    //     host: 'localhost',
-    //     port: 5432,
-    //     user: 'your_username',
-    //     password: 'your_password',
-    //     database: 'your_database'
-    //   }
-    // },
-    
-    // mysql_secondary: {
-    //   client: 'mysql2',
-    //   connection: {
-    //     host: 'secondary.mysql.com',
-    //     port: 3306,
-    //     user: 'secondary_user',
-    //     password: 'secondary_password',
-    //     database: 'secondary_db'
-    //   }
-    // }
+    postgres: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        user: process.env.DB_USERNAME || 'postgres',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database'
+      }
+    }
   },
   
   migrations: {
-    directory: './migrations',
+    directory: './database/migrations',
     tableName: 'migrations'
   },
   
   seeds: {
-    directory: './seeds'
+    directory: './database/seeds'
   }
 };
 
@@ -294,46 +386,51 @@ module.exports = config;
       fs.writeFileSync(configPath, configTemplate);
       console.log(`Created config file: ${configPath}`);
     }
-    
+
     // Create .env file if it doesn't exist
     const envPath = '.env';
     if (!fs.existsSync(envPath)) {
       const envTemplate = `# Database Configuration
-DB_CONNECTION=sqlite
+DB_CONNECTION=mysql
 DB_HOST=localhost
 DB_PORT=3306
 DB_DATABASE=your_database
-DB_USERNAME=your_username
-DB_PASSWORD=your_password
+DB_USERNAME=root
+DB_PASSWORD=
+DB_TIMEZONE=UTC
 
-# PostgreSQL
+# SQLite Configuration
+# DB_CONNECTION=sqlite
+# DB_FILENAME=./database.sqlite
+
+# MySQL Configuration (alternative)
+# DB_HOST=localhost
+# DB_PORT=3306
+# DB_DATABASE=your_database
+# DB_USERNAME=root
+# DB_PASSWORD=
+# DB_TIMEZONE=America/New_York
+
+# PostgreSQL Configuration
 # DB_CONNECTION=postgres
 # DB_HOST=localhost
 # DB_PORT=5432
 # DB_DATABASE=your_database
-# DB_USERNAME=your_username
-# DB_PASSWORD=your_password
-
-# MySQL
-# DB_CONNECTION=mysql
-# DB_HOST=localhost
-# DB_PORT=3306
-# DB_DATABASE=your_database
-# DB_USERNAME=your_username
-# DB_PASSWORD=your_password
+# DB_USERNAME=postgres
+# DB_PASSWORD=
+# DB_TIMEZONE=Europe/London
 `;
       fs.writeFileSync(envPath, envTemplate);
       console.log(`Created environment file: ${envPath}`);
     }
-    
+
     console.log('\nIlana ORM setup complete!');
     console.log('\nNext steps:');
-    console.log('1. Update ilana.config.js connections and set your default');
-    console.log('2. Uncomment and configure additional connections as needed');
-    console.log('3. Run: ilana make:model User -m');
-    console.log('4. Run: ilana migrate');
+    console.log('1. Update .env file with your database credentials');
+    console.log('2. Run: ilana make:model User -m');
+    console.log('3. Run: ilana migrate');
   },
-  async 'make:migration'(name?: string, ...flags: string[]) {
+  async 'make:migration'(name, ...flags) {
     if (!name) {
       console.error('Migration name is required');
       console.log('Usage: ilana make:migration <name> [--table=table] [--create=table]');
@@ -342,7 +439,7 @@ DB_PASSWORD=your_password
 
     let tableName = '';
     let isCreate = false;
-    
+
     for (const flag of flags) {
       if (flag.startsWith('--table=')) {
         tableName = flag.split('=')[1];
@@ -357,7 +454,7 @@ DB_PASSWORD=your_password
     runner.generateMigration(name, tableName, isCreate);
   },
 
-  async 'make:factory'(name?: string) {
+  async 'make:factory'(name) {
     if (!name) {
       console.error('Factory name is required');
       console.log('Usage: ilana make:factory <FactoryName>');
@@ -368,7 +465,7 @@ DB_PASSWORD=your_password
     generateFactory(className);
   },
 
-  async 'make:seeder'(name?: string) {
+  async 'make:seeder'(name) {
     if (!name) {
       console.error('Seeder name is required');
       console.log('Usage: ilana make:seeder <SeederName>');
@@ -379,15 +476,23 @@ DB_PASSWORD=your_password
     generateSeeder(className);
   },
 
-  async 'make:model'(name?: string, ...flags: string[]) {
+  async 'make:model'(name, ...flags) {
     if (!name) {
       console.error('Model name is required');
       console.log('Usage: ilana make:model <ModelName> [options]');
       process.exit(1);
     }
 
-    const options: ModelOptions = {};
-    
+    // Validate model name format
+    if (!/^[A-Z][a-zA-Z0-9]*$/.test(name)) {
+      console.error('Model name must start with uppercase letter and contain only letters and numbers');
+      console.error('Invalid: App_Post, App/Post, app_post');
+      console.error('Valid: AppPost, User, BlogPost');
+      process.exit(1);
+    }
+
+    const options = {};
+
     for (const flag of flags) {
       switch (flag) {
         case '-m':
@@ -425,14 +530,14 @@ DB_PASSWORD=your_password
     generateModel(name, options);
   },
 
-  async migrate(...args: string[]) {
+  async migrate(...args) {
     initializeDatabase();
     const runner = new MigrationRunner();
-    
-    let connection: string | undefined;
-    let onlyFile: string | undefined;
-    let toFile: string | undefined;
-    
+
+    let connection;
+    let onlyFile;
+    let toFile;
+
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--connection' && args[i + 1]) {
@@ -454,18 +559,18 @@ DB_PASSWORD=your_password
         connection = arg;
       }
     }
-    
+
     await runner.migrate(connection, onlyFile, toFile);
     process.exit(0);
   },
 
-  async 'migrate:fresh'(...args: string[]) {
+  async 'migrate:fresh'(...args) {
     initializeDatabase();
     const runner = new MigrationRunner();
-    
-    let connection: string | undefined;
+
+    let connection;
     let withSeed = false;
-    
+
     for (const arg of args) {
       if (arg === '--seed') {
         withSeed = true;
@@ -475,38 +580,38 @@ DB_PASSWORD=your_password
         connection = arg;
       }
     }
-    
+
     await runner.fresh(connection);
-    
+
     if (withSeed) {
       await commands.seed();
     }
-    
+
     process.exit(0);
   },
 
-  async 'migrate:list'(connection?: string) {
+  async 'migrate:list'(connection) {
     initializeDatabase();
     const runner = new MigrationRunner();
     await runner.list(connection);
     process.exit(0);
   },
 
-  async 'migrate:unlock'(connection?: string) {
+  async 'migrate:unlock'(connection) {
     initializeDatabase();
     const runner = new MigrationRunner();
     await runner.unlock(connection);
     process.exit(0);
   },
 
-  async 'migrate:rollback'(...args: string[]) {
+  async 'migrate:rollback'(...args) {
     initializeDatabase();
     const runner = new MigrationRunner();
-    
+
     let steps = 1;
-    let connection: string | undefined;
-    let toFile: string | undefined;
-    
+    let connection;
+    let toFile;
+
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--step' && args[i + 1]) {
@@ -530,38 +635,38 @@ DB_PASSWORD=your_password
         connection = arg;
       }
     }
-    
+
     await runner.rollback(steps, connection, toFile);
     process.exit(0);
   },
 
-  async 'migrate:reset'(connection?: string) {
+  async 'migrate:reset'(connection) {
     initializeDatabase();
     const runner = new MigrationRunner();
     await runner.reset(connection);
     process.exit(0);
   },
 
-  async 'migrate:refresh'(connection?: string) {
+  async 'migrate:refresh'(connection) {
     initializeDatabase();
     const runner = new MigrationRunner();
     await runner.refresh(connection);
     process.exit(0);
   },
 
-  async 'migrate:status'(connection?: string) {
+  async 'migrate:status'(connection) {
     initializeDatabase();
     const runner = new MigrationRunner();
     await runner.status(connection);
     process.exit(0);
   },
 
-  async seed(...args: string[]) {
+  async seed(...args) {
     initializeDatabase();
-    
-    let seederName: string | undefined;
-    let connection: string | undefined;
-    
+
+    let seederName;
+    let connection;
+
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--class' && args[i + 1]) {
@@ -579,8 +684,8 @@ DB_PASSWORD=your_password
         else connection = arg;
       }
     }
-    
-    const seedsPath = path.join(process.cwd(), 'seeds');
+
+    const seedsPath = path.join(process.cwd(), 'database/seeds');
     if (!fs.existsSync(seedsPath)) {
       console.log('No seeds directory found');
       process.exit(0);
@@ -595,7 +700,7 @@ DB_PASSWORD=your_password
       process.exit(0);
     }
 
-    const filesToRun = seederName 
+    const filesToRun = seederName
       ? seedFiles.filter(file => file.includes(seederName))
       : seedFiles;
 
@@ -608,15 +713,15 @@ DB_PASSWORD=your_password
       const seederModule = require(filepath);
       const SeederClass = seederModule.default || seederModule;
       const seeder = new SeederClass();
-      
+
       if (connection) {
         seeder.connection = connection;
       }
-      
+
       if (typeof seeder.run === 'function') {
         await seeder.run();
       }
-      
+
       console.log(`Seeded: ${file}`);
     }
 
@@ -624,18 +729,18 @@ DB_PASSWORD=your_password
     process.exit(0);
   },
 
-  async 'db:seed'(seederName?: string) {
+  async 'db:seed'(seederName) {
     return commands.seed(seederName);
   },
 
-  async 'db:wipe'(connection?: string) {
+  async 'db:wipe'(connection) {
     initializeDatabase();
     const runner = new MigrationRunner();
     await runner.wipe(connection);
     process.exit(0);
   },
 
-  async 'make:observer'(name?: string, ...flags: string[]) {
+  async 'make:observer'(name, ...flags) {
     if (!name) {
       console.error('Observer name is required');
       console.log('Usage: ilana make:observer <ObserverName> [--model=ModelName]');
@@ -643,7 +748,7 @@ DB_PASSWORD=your_password
     }
 
     let modelName = '';
-    
+
     for (const flag of flags) {
       if (flag.startsWith('--model=')) {
         modelName = flag.split('=')[1];
@@ -651,51 +756,63 @@ DB_PASSWORD=your_password
     }
 
     const className = toPascalCase(name.replace('Observer', ''));
-    const fileName = `${className}Observer.ts`;
+    const fileName = `${className}Observer${getFileExtension()}`;
     const filePath = path.join(process.cwd(), 'observers', fileName);
 
     if (!fs.existsSync(path.dirname(filePath))) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
     }
 
-    const importStatement = modelName ? `import ${modelName} from '../models/${modelName}';\n\n` : '';
-    const modelType = modelName || 'any';
-
-    const template = `${importStatement}export default class ${className}Observer {
-  async creating(model: ${modelType}): Promise<void> {}
-  async created(model: ${modelType}): Promise<void> {}
-  async updating(model: ${modelType}): Promise<void> {}
-  async updated(model: ${modelType}): Promise<void> {}
-  async saving(model: ${modelType}): Promise<void> {}
-  async saved(model: ${modelType}): Promise<void> {}
-  async deleting(model: ${modelType}): Promise<void> {}
-  async deleted(model: ${modelType}): Promise<void> {}
+    const template = isTypeScriptProject() ?
+      `${modelName ? `import ${modelName} from '../models/${modelName}';\n\n` : ''}export default class ${className}Observer {
+  async creating(model: ${modelName || 'any'}): Promise<void> {}
+  async created(model: ${modelName || 'any'}): Promise<void> {}
+  async updating(model: ${modelName || 'any'}): Promise<void> {}
+  async updated(model: ${modelName || 'any'}): Promise<void> {}
+  async saving(model: ${modelName || 'any'}): Promise<void> {}
+  async saved(model: ${modelName || 'any'}): Promise<void> {}
+  async deleting(model: ${modelName || 'any'}): Promise<void> {}
+  async deleted(model: ${modelName || 'any'}): Promise<void> {}
 }
+` :
+      `${modelName ? `const ${modelName} = require('../models/${modelName}');\n\n` : ''}class ${className}Observer {
+  async creating(model) {}
+  async created(model) {}
+  async updating(model) {}
+  async updated(model) {}
+  async saving(model) {}
+  async saved(model) {}
+  async deleting(model) {}
+  async deleted(model) {}
+}
+
+module.exports = ${className}Observer;
 `;
 
     fs.writeFileSync(filePath, template);
     console.log(`Created observer: observers/${fileName}`);
-    
+
     if (modelName) {
       console.log(`Observer configured for model: ${modelName}`);
     }
   },
 
-  async 'make:cast'(name?: string) {
+  async 'make:cast'(name) {
     if (!name) {
       console.error('Cast name is required');
       process.exit(1);
     }
 
     const className = toPascalCase(name.replace('Cast', ''));
-    const fileName = `${className}Cast.ts`;
+    const fileName = `${className}Cast${getFileExtension()}`;
     const filePath = path.join(process.cwd(), 'casts', fileName);
 
     if (!fs.existsSync(path.dirname(filePath))) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
     }
 
-    const template = `import { CustomCast } from '../orm/Model';
+    const template = isTypeScriptProject() ?
+      `import { CustomCast } from 'ilana-orm/orm/Model';
 
 export default class ${className}Cast implements CustomCast {
   get(value: any): any {
@@ -706,6 +823,18 @@ export default class ${className}Cast implements CustomCast {
     return value;
   }
 }
+` :
+      `class ${className}Cast {
+  get(value) {
+    return value;
+  }
+
+  set(value) {
+    return value;
+  }
+}
+
+module.exports = ${className}Cast;
 `;
 
     fs.writeFileSync(filePath, template);
@@ -764,8 +893,8 @@ async function main() {
     return;
   }
 
-  const commandHandler = commands[command as keyof typeof commands];
-  
+  const commandHandler = commands[command];
+
   if (!commandHandler) {
     console.error(`Unknown command: ${command}`);
     commands.help();
@@ -796,4 +925,4 @@ if (require.main === module) {
   main();
 }
 
-export default commands;
+module.exports = commands;

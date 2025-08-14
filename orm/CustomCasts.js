@@ -1,23 +1,19 @@
-import { CustomCast } from './Model';
-
-export class MoneyCast implements CustomCast {
-  get(value: any): number | null {
+class MoneyCast {
+  get(value) {
     return value ? parseFloat(value) / 100 : null;
   }
   
-  set(value: any): number | null {
+  set(value) {
     return value ? Math.round(value * 100) : null;
   }
 }
 
-export class EncryptedCast implements CustomCast {
-  private key: string;
-  
-  constructor(key: string = 'default-key') {
+class EncryptedCast {
+  constructor(key = 'default-key') {
     this.key = key;
   }
   
-  get(value: any): string | null {
+  get(value) {
     if (!value) return null;
     // Simple base64 decode for demo - use proper encryption in production
     try {
@@ -27,50 +23,50 @@ export class EncryptedCast implements CustomCast {
     }
   }
   
-  set(value: any): string | null {
+  set(value) {
     if (!value) return null;
     // Simple base64 encode for demo - use proper encryption in production
     return Buffer.from(value).toString('base64');
   }
 }
 
-export class JsonCast implements CustomCast {
-  get(value: any): any {
+class JsonCast {
+  get(value) {
     if (!value) return null;
     return typeof value === 'string' ? JSON.parse(value) : value;
   }
   
-  set(value: any): string | null {
+  set(value) {
     if (value === null || value === undefined) return null;
     return typeof value === 'string' ? value : JSON.stringify(value);
   }
 }
 
-export class ArrayCast implements CustomCast {
-  get(value: any): any[] | null {
+class ArrayCast {
+  get(value) {
     if (!value) return null;
     return Array.isArray(value) ? value : JSON.parse(value);
   }
   
-  set(value: any): string | null {
+  set(value) {
     if (!value) return null;
     return Array.isArray(value) ? JSON.stringify(value) : value;
   }
 }
 
-export class DateCast implements CustomCast {
-  get(value: any): Date | null {
+class DateCast {
+  get(value) {
     if (!value) return null;
     return new Date(value);
   }
   
-  set(value: any): string | null {
+  set(value) {
     if (!value) return null;
     return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
   }
 }
 
-export default {
+module.exports = {
   MoneyCast,
   EncryptedCast,
   JsonCast,

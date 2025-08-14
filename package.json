@@ -2,16 +2,14 @@
   "name": "ilana-orm",
   "version": "1.0.0",
   "description": "A fully-featured, Eloquent-style ORM for Node.js with TypeScript support",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "index.js",
   "bin": {
-    "ilana": "dist/cli/ilana.js"
+    "ilana": "cli/ilana.js"
   },
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build",
+    "build": "echo 'No build needed - using JavaScript files directly'",
     "test": "jest",
-    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
+    "prepublishOnly": "echo 'Ready to publish'"
   },
   "keywords": [
     "orm",
@@ -39,32 +37,27 @@
     "url": "https://github.com/raphyabak/ilana-orm/issues"
   },
   "files": [
-    "dist/**/*",
+    "*.js",
+    "cli/**/*.js",
+    "database/**/*.js",
+    "orm/**/*.js",
     "README.md",
     "LICENSE",
     "ilana.png"
   ],
   "dependencies": {
-    "knex": "^3.0.0"
-  },
-  "peerDependencies": {
+    "knex": "^3.0.0",
+    "uuid": "^9.0.0",
+    "@faker-js/faker": "^8.0.0",
     "pg": "^8.0.0",
     "mysql2": "^3.0.0",
-    "sqlite3": "^5.0.0"
-  },
-  "peerDependenciesMeta": {
-    "pg": {
-      "optional": true
-    },
-    "mysql2": {
-      "optional": true
-    },
-    "sqlite3": {
-      "optional": true
-    }
+    "sqlite3": "^5.0.0",
+    "dotenv": "^16.3.1",
+    "moment-timezone": "^0.6.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0",
     "typescript": "^5.0.0",
     "ts-node": "^10.0.0",
     "ts-node-dev": "^2.0.0",

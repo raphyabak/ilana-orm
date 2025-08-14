@@ -1,40 +1,24 @@
-import { faker } from '@faker-js/faker';
-import Model from './Model';
+const { faker } = require('@faker-js/faker');
+const Model = require('./Model');
 
-export type FactoryDefinition<T extends Model> = (faker: typeof import('@faker-js/faker').faker) => Partial<T>;
-
-export interface FactoryEvaluator {
-  hasState(state: string): boolean;
-  getStates(): string[];
-}
-
-export interface FactoryBuilder<T extends Model> {
-  definition: FactoryDefinition<T>;
-  states: Map<string, FactoryDefinition<T>>;
-  afterCreating: Array<(model: T, evaluator: FactoryEvaluator) => Promise<void> | void>;
-  afterMaking: Array<(model: T, evaluator: FactoryEvaluator) => Promise<void> | void>;
-}
-
-export class Factory<T extends Model> {
-  private model: new () => T;
-  private definition: FactoryDefinition<T>;
-  private states: Map<string, FactoryDefinition<T>> = new Map();
-  private afterCreating: Array<(model: T) => Promise<void> | void> = [];
-  private afterMaking: Array<(model: T) => Promise<void> | void> = [];
-  private beforeCreating: Array<(model: T) => Promise<void> | void> = [];
-  private beforeMaking: Array<(attributes: any) => any> = [];
-  private count: number = 1;
-  private currentStates: string[] = [];
-  private relationships: Map<string, Factory<any>> = new Map();
-  private sequence: number = 0;
-  private sequences: Map<string, number> = new Map();
-
-  constructor(model: new () => T, definition: FactoryDefinition<T>) {
+class Factory {
+  constructor(model, definition) {
     this.model = model;
     this.definition = definition;
+    this.faker = faker;
+    this.states = new Map();
+    this.afterCreating = [];
+    this.afterMaking = [];
+    this.beforeCreating = [];
+    this.beforeMaking = [];
+    this.count = 1;
+    this.currentStates = [];
+    this.relationships = new Map();
+    this.sequence = 0;
+    this.sequences = new Map();
   }
 
-  state(name: string, definition?: FactoryDefinition<T>): this {
+  state(name, definition) {
     if (definition) {
       this.states.set(name, definition);
     } else {
@@ -43,59 +27,59 @@ export class Factory<T extends Model> {
     return this;
   }
 
-  afterCreating(callback: (model: T) => Promise<void> | void): this {
+  afterCreating(callback) {
     this.afterCreating.push(callback);
     return this;
   }
 
-  afterMaking(callback: (model: T) => Promise<void> | void): this {
+  afterMaking(callback) {
     this.afterMaking.push(callback);
     return this;
   }
 
-  beforeCreating(callback: (model: T) => Promise<void> | void): this {
+  beforeCreating(callback) {
     this.beforeCreating.push(callback);
     return this;
   }
 
-  beforeMaking(callback: (attributes: any) => any): this {
+  beforeMaking(callback) {
     this.beforeMaking.push(callback);
     return this;
   }
 
-  times(count: number): this {
+  times(count) {
     this.count = count;
     return this;
   }
 
-  as(state: string): this {
+  as(state) {
     this.currentStates.push(state);
     return this;
   }
 
-  for(relation: string, factory: Factory<any>): this {
+  for(relation, factory) {
     this.relationships.set(relation, factory);
     return this;
   }
 
-  has(factory: Factory<any>, relation?: string): this {
+  has(factory, relation) {
     if (relation) {
       this.relationships.set(relation, factory);
     }
     return this;
   }
 
-  hasAttached(factory: Factory<any>, relation: string): this {
+  hasAttached(factory, relation) {
     this.relationships.set(relation, factory);
     return this;
   }
 
-  sequence(): number {
+  sequence() {
     return ++this.sequence;
   }
 
   // Enhanced sequence methods
-  sequenceFor(key: string): number {
+  sequenceFor(key) {
     if (!this.sequences) this.sequences = new Map();
     const current = this.sequences.get(key) || 0;
     const next = current + 1;
@@ -103,7 +87,7 @@ export class Factory<T extends Model> {
     return next;
   }
 
-  resetSequence(key?: string): this {
+  resetSequence(key) {
     if (key) {
       this.sequences?.set(key, 0);
     } else {
@@ -113,46 +97,53 @@ export class Factory<T extends Model> {
     return this;
   }
 
-  raw(attributes: Partial<T> = {}): any | any[] {
+  raw(attributes = {}) {
     if (this.count === 1) {
       return this.makeRaw(attributes);
     }
 
-    const results: any[] = [];
+    const results = [];
     for (let i = 0; i < this.count; i++) {
       results.push(this.makeRaw(attributes));
     }
     return results;
   }
 
-  async make(attributes: Partial<T> = {}): Promise<T | T[]> {
+  async make(attributes = {}) {
     if (this.count === 1) {
       return this.makeOne(attributes);
     }
 
-    const models: T[] = [];
+    const models = [];
     for (let i = 0; i < this.count; i++) {
       models.push(await this.makeOne(attributes));
     }
     return models;
   }
 
-  async create(attributes: Partial<T> = {}): Promise<T | T[]> {
+  async create(attributes = {}) {
     if (this.count === 1) {
       return this.createOne(attributes);
     }
 
-    const models: T[] = [];
+    const models = [];
     for (let i = 0; i < this.count; i++) {
       models.push(await this.createOne(attributes));
     }
     return models;
   }
 
-  private makeRaw(attributes: Partial<T> = {}): any {
-    let modelAttributes = this.definition(faker);
+  makeRaw(attributes = {}) {
+    let modelAttributes;
+    
+    if (typeof this.definition === 'function') {
+      modelAttributes = this.definition(faker);
+    } else if (this.definition === undefined && typeof this.definition === 'function') {
+      modelAttributes = this.definition();
+    } else {
+      throw new Error('Factory must have a definition function');
+    }
 
-    // Apply states
     for (const stateName of this.currentStates) {
       const stateDefinition = this.states.get(stateName);
       if (stateDefinition) {
@@ -160,10 +151,8 @@ export class Factory<T extends Model> {
       }
     }
 
-    // Apply custom attributes
     modelAttributes = { ...modelAttributes, ...attributes };
 
-    // Run beforeMaking callbacks
     for (const callback of this.beforeMaking) {
       modelAttributes = callback(modelAttributes) || modelAttributes;
     }
@@ -171,11 +160,11 @@ export class Factory<T extends Model> {
     return modelAttributes;
   }
 
-  private async makeOne(attributes: Partial<T> = {}): Promise<T> {
+  async makeOne(attributes = {}) {
     const modelAttributes = this.makeRaw(attributes);
 
     const model = new this.model();
-    model.fill(modelAttributes as any);
+    model.fill(modelAttributes);
 
     // Run afterMaking callbacks
     for (const callback of this.afterMaking) {
@@ -185,7 +174,7 @@ export class Factory<T extends Model> {
     return model;
   }
 
-  private async createOne(attributes: Partial<T> = {}): Promise<T> {
+  async createOne(attributes = {}) {
     const model = await this.makeOne(attributes);
     
     // Run beforeCreating callbacks
@@ -204,19 +193,19 @@ export class Factory<T extends Model> {
   }
 
   // Enhanced factory methods
-  configure(callback: (factory: this) => void): this {
+  configure(callback) {
     callback(this);
     return this;
   }
 
-  when(condition: boolean, callback: (factory: this) => void): this {
+  when(condition, callback) {
     if (condition) {
       callback(this);
     }
     return this;
   }
 
-  unless(condition: boolean, callback: (factory: this) => void): this {
+  unless(condition, callback) {
     if (!condition) {
       callback(this);
     }
@@ -224,11 +213,11 @@ export class Factory<T extends Model> {
   }
 
   // Advanced relationship creation
-  async createWithRelations(attributes: Partial<T> = {}, relations: Record<string, any> = {}): Promise<T> {
+  async createWithRelations(attributes = {}, relations = {}) {
     const model = await this.createOne(attributes);
     
     for (const [relationName, relationData] of Object.entries(relations)) {
-      const relationMethod = (model as any)[relationName];
+      const relationMethod = model[relationName];
       if (typeof relationMethod === 'function') {
         const relation = relationMethod.call(model);
         if (relation.constructor.name === 'BelongsToMany') {
@@ -245,8 +234,8 @@ export class Factory<T extends Model> {
   }
 
   // Batch operations
-  async createInBatches(batchSize: number = 100, attributes: Partial<T> = {}): Promise<T[]> {
-    const results: T[] = [];
+  async createInBatches(batchSize = 100, attributes = {}) {
+    const results = [];
     const totalBatches = Math.ceil(this.count / batchSize);
     
     for (let i = 0; i < totalBatches; i++) {
@@ -255,33 +244,24 @@ export class Factory<T extends Model> {
       batchFactory.count = currentBatchSize;
       batchFactory.currentStates = [...this.currentStates];
       
-      const batch = await batchFactory.create(attributes) as T[];
+      const batch = await batchFactory.create(attributes);
       results.push(...(Array.isArray(batch) ? batch : [batch]));
     }
     
     return results;
   }
-
-  // Reset factory state
-  private reset(): void {
-    this.count = 1;
-    this.currentStates = [];
-  }
 }
 
 // Factory registry
-const factories = new Map<new () => Model, Factory<any>>();
+const factories = new Map();
 
-export function defineFactory<T extends Model>(
-  model: new () => T,
-  definition: FactoryDefinition<T>
-): Factory<T> {
+function defineFactory(model, definition) {
   const factory = new Factory(model, definition);
   factories.set(model, factory);
   return factory;
 }
 
-export function factory<T extends Model>(model: new () => T): Factory<T> {
+function factory(model) {
   const factory = factories.get(model);
   if (!factory) {
     throw new Error(`No factory defined for model: ${model.name}`);
@@ -290,28 +270,25 @@ export function factory<T extends Model>(model: new () => T): Factory<T> {
 }
 
 // Enhanced factory utilities
-export function factoryForModel<T extends Model>(model: new () => T): Factory<T> {
+function factoryForModel(model) {
   return factory(model);
 }
 
-export function createFactory<T extends Model>(
-  model: new () => T,
-  definition: FactoryDefinition<T>
-): Factory<T> {
+function createFactory(model, definition) {
   return defineFactory(model, definition);
 }
 
 // Global factory state management
-const globalSequences = new Map<string, number>();
+const globalSequences = new Map();
 
-export function globalSequence(key: string): number {
+function globalSequence(key) {
   const current = globalSequences.get(key) || 0;
   const next = current + 1;
   globalSequences.set(key, next);
   return next;
 }
 
-export function resetGlobalSequence(key?: string): void {
+function resetGlobalSequence(key) {
   if (key) {
     globalSequences.set(key, 0);
   } else {
@@ -320,32 +297,25 @@ export function resetGlobalSequence(key?: string): void {
 }
 
 // Factory trait system
-export interface FactoryTrait<T extends Model> {
-  apply(factory: Factory<T>): Factory<T>;
-}
-
-export function trait<T extends Model>(callback: (factory: Factory<T>) => Factory<T>): FactoryTrait<T> {
+function trait(callback) {
   return { apply: callback };
 }
 
 // Performance optimized factory
-export class BulkFactory<T extends Model> {
-  private model: new () => T;
-  private definition: FactoryDefinition<T>;
-  private batchSize: number = 1000;
-
-  constructor(model: new () => T, definition: FactoryDefinition<T>) {
+class BulkFactory {
+  constructor(model, definition) {
     this.model = model;
     this.definition = definition;
+    this.batchSize = 1000;
   }
 
-  setBatchSize(size: number): this {
+  setBatchSize(size) {
     this.batchSize = size;
     return this;
   }
 
-  async create(count: number): Promise<T[]> {
-    const results: T[] = [];
+  async create(count) {
+    const results = [];
     const batches = Math.ceil(count / this.batchSize);
     
     for (let i = 0; i < batches; i++) {
@@ -356,12 +326,12 @@ export class BulkFactory<T extends Model> {
         batchData.push(this.definition(faker));
       }
       
-      const insertedIds = await (this.model as any).query().insert(batchData);
+      const insertedIds = await this.model.query().insert(batchData);
       
       for (let k = 0; k < batchData.length; k++) {
         const model = new this.model();
         model.fill({ ...batchData[k], id: insertedIds[k] });
-        (model as any).exists = true;
+        model.exists = true;
         results.push(model);
       }
     }
@@ -370,22 +340,33 @@ export class BulkFactory<T extends Model> {
   }
 }
 
-export function bulkFactory<T extends Model>(
-  model: new () => T,
-  definition: FactoryDefinition<T>
-): BulkFactory<T> {
+function bulkFactory(model, definition) {
   return new BulkFactory(model, definition);
 }
 
-// Add factory method to Model
-declare module './Model' {
-  namespace Model {
-    function factory<T extends Model>(this: new () => T): Factory<T>;
-  }
+// Add factory method to Model prototype
+if (typeof Model !== 'undefined') {
+  Model.factory = function() {
+    const existingFactory = factories.get(this);
+    if (existingFactory) {
+      // Return a new instance to avoid state pollution
+      const newFactory = new Factory(this, existingFactory.definition);
+      newFactory.states = new Map(existingFactory.states);
+      return newFactory;
+    }
+    throw new Error(`No factory defined for model: ${this.name}`);
+  };
 }
 
-Model.factory = function <T extends Model>(this: new () => T): Factory<T> {
-  return factory(this);
+module.exports = {
+  Factory,
+  defineFactory,
+  factory,
+  factoryForModel,
+  createFactory,
+  globalSequence,
+  resetGlobalSequence,
+  trait,
+  BulkFactory,
+  bulkFactory
 };
-
-export default Factory;

@@ -1,111 +1,108 @@
-import { Knex } from 'knex';
-import Database from './connection';
+const Database = require('./connection');
 
-export class SchemaBuilder {
-  private knex: Knex;
-  private currentTable: string = '';
-
-  constructor(connection?: string) {
+class SchemaBuilder {
+  constructor(connection) {
     this.knex = Database.connection(connection);
+    this.currentTable = '';
   }
 
-  createTable(tableName: string, callback: (table: Knex.CreateTableBuilder) => void): Knex.SchemaBuilder {
+  createTable(tableName, callback) {
     return this.knex.schema.createTable(tableName, callback);
   }
 
-  dropTable(tableName: string): Knex.SchemaBuilder {
+  dropTable(tableName) {
     return this.knex.schema.dropTable(tableName);
   }
 
-  dropTableIfExists(tableName: string): Knex.SchemaBuilder {
+  dropTableIfExists(tableName) {
     return this.knex.schema.dropTableIfExists(tableName);
   }
 
-  renameTable(from: string, to: string): Knex.SchemaBuilder {
+  renameTable(from, to) {
     return this.knex.schema.renameTable(from, to);
   }
 
-  hasTable(tableName: string): Promise<boolean> {
+  hasTable(tableName) {
     return this.knex.schema.hasTable(tableName);
   }
 
-  hasColumn(tableName: string, columnName: string): Promise<boolean> {
+  hasColumn(tableName, columnName) {
     return this.knex.schema.hasColumn(tableName, columnName);
   }
 
-  table(tableName: string, callback: (table: Knex.AlterTableBuilder) => void): Knex.SchemaBuilder {
+  table(tableName, callback) {
     return this.knex.schema.table(tableName, callback);
   }
 
-  alterTable(tableName: string, callback: (table: Knex.AlterTableBuilder) => void): Knex.SchemaBuilder {
+  alterTable(tableName, callback) {
     return this.knex.schema.alterTable(tableName, callback);
   }
 
-  raw(statement: string): Knex.Raw {
+  raw(statement) {
     return this.knex.raw(statement);
   }
 
   // PostgreSQL specific
-  createSchema(schemaName: string): Knex.SchemaBuilder {
+  createSchema(schemaName) {
     return this.knex.schema.createSchema(schemaName);
   }
 
-  dropSchema(schemaName: string): Knex.SchemaBuilder {
+  dropSchema(schemaName) {
     return this.knex.schema.dropSchema(schemaName);
   }
 
   // Advanced column types
-  jsonb(columnName: string): any {
+  jsonb(columnName) {
     if (this.knex.client.config.client === 'pg') {
       return this.knex.schema.jsonb ? this.knex.schema.jsonb(columnName) : this.knex.schema.json(columnName);
     }
     return this.knex.schema.json(columnName);
   }
 
-  geometry(columnName: string, geometryType?: string): any {
+  geometry(columnName, geometryType) {
     return this.knex.schema.specificType(columnName, geometryType || 'geometry');
   }
 
-  point(columnName: string): any {
+  point(columnName) {
     return this.knex.schema.specificType(columnName, 'point');
   }
 
-  lineString(columnName: string): any {
+  lineString(columnName) {
     return this.knex.schema.specificType(columnName, 'linestring');
   }
 
-  polygon(columnName: string): any {
+  polygon(columnName) {
     return this.knex.schema.specificType(columnName, 'polygon');
   }
 
-  inet(columnName: string): any {
+  inet(columnName) {
     return this.knex.schema.specificType(columnName, 'inet');
   }
 
-  macaddr(columnName: string): any {
+  macaddr(columnName) {
     return this.knex.schema.specificType(columnName, 'macaddr');
   }
 
-  specificType(columnName: string, type: string): any {
+  specificType(columnName, type) {
     return this.knex.schema.specificType(columnName, type);
   }
 
   // Enhanced column modifiers with database-specific implementations
-  after(columnName: string): any {
+  after(columnName) {
     if (this.knex.client.config.client === 'mysql2') {
       return this.knex.schema.raw(`AFTER ${columnName}`);
     }
     return this;
   }
 
-  first(): any {
+  first() {
     if (this.knex.client.config.client === 'mysql2') {
       return this.knex.schema.raw('FIRST');
     }
     return this;
   }
 
-  checkPositive(column: string): Promise<any> {
+  checkPositive(column) {
     const client = this.knex.client.config.client;
     if (client === 'pg') {
       return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD CONSTRAINT ${column}_positive CHECK (${column} > 0)`);
@@ -115,7 +112,7 @@ export class SchemaBuilder {
     return Promise.resolve();
   }
 
-  checkRegex(column: string, pattern: string): Promise<any> {
+  checkRegex(column, pattern) {
     const client = this.knex.client.config.client;
     if (client === 'pg') {
       return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD CONSTRAINT ${column}_regex CHECK (${column} ~ '${pattern}')`);
@@ -125,7 +122,7 @@ export class SchemaBuilder {
     return Promise.resolve();
   }
 
-  generatedAs(column: string, expression: string): Promise<any> {
+  generatedAs(column, expression) {
     const client = this.knex.client.config.client;
     if (client === 'mysql2') {
       return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD ${column} VARCHAR(255) GENERATED ALWAYS AS (${expression}) STORED`);
@@ -135,7 +132,7 @@ export class SchemaBuilder {
     return Promise.resolve();
   }
 
-  collate(tableName: string, collation: string): Promise<any> {
+  collate(tableName, collation) {
     const client = this.knex.client.config.client;
     if (client === 'mysql2') {
       return this.knex.raw(`ALTER TABLE ${tableName} COLLATE ${collation}`);
@@ -146,27 +143,27 @@ export class SchemaBuilder {
   }
 
   // Enhanced PostgreSQL types
-  array(columnName: string, type: string = 'text'): any {
+  array(columnName, type = 'text') {
     if (this.knex.client.config.client === 'pg') {
       return this.knex.schema.specificType(columnName, `${type}[]`);
     }
     return this.knex.schema.json(columnName);
   }
 
-  numrange(columnName: string): any {
+  numrange(columnName) {
     return this.knex.schema.specificType(columnName, 'numrange');
   }
 
-  daterange(columnName: string): any {
+  daterange(columnName) {
     return this.knex.schema.specificType(columnName, 'daterange');
   }
 
-  tsvector(columnName: string): any {
+  tsvector(columnName) {
     return this.knex.schema.specificType(columnName, 'tsvector');
   }
 
   // Enhanced MySQL types
-  fulltext(columns: string[], indexName?: string): Promise<any> {
+  fulltext(columns, indexName) {
     if (this.knex.client.config.client === 'mysql2') {
       const name = indexName || `${columns.join('_')}_fulltext`;
       return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD FULLTEXT INDEX ${name} (${columns.join(', ')})`);
@@ -174,7 +171,7 @@ export class SchemaBuilder {
     return Promise.resolve();
   }
 
-  spatial(column: string, indexName?: string): Promise<any> {
+  spatial(column, indexName) {
     if (this.knex.client.config.client === 'mysql2') {
       const name = indexName || `${column}_spatial`;
       return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD SPATIAL INDEX ${name} (${column})`);
@@ -182,9 +179,7 @@ export class SchemaBuilder {
     return Promise.resolve();
   }
 
-  private currentTable: string = '';
-
-  setCurrentTable(tableName: string): this {
+  setCurrentTable(tableName) {
     this.currentTable = tableName;
     return this;
   }
@@ -199,21 +194,21 @@ export class SchemaBuilder {
   }
 
   // Database-specific utilities
-  enableExtension(name: string): Promise<any> {
+  enableExtension(name) {
     if (this.knex.client.config.client === 'pg') {
       return this.knex.raw(`CREATE EXTENSION IF NOT EXISTS "${name}"`);
     }
     return Promise.resolve();
   }
 
-  createEnum(name: string, values: string[]): Promise<any> {
+  createEnum(name, values) {
     if (this.knex.client.config.client === 'pg') {
       return this.knex.raw(`CREATE TYPE ${name} AS ENUM (${values.map(v => `'${v}'`).join(', ')})`);
     }
     return Promise.resolve();
   }
 
-  dropEnum(name: string): Promise<any> {
+  dropEnum(name) {
     if (this.knex.client.config.client === 'pg') {
       return this.knex.raw(`DROP TYPE IF EXISTS ${name}`);
     }
@@ -221,4 +216,4 @@ export class SchemaBuilder {
   }
 }
 
-export default SchemaBuilder;
+module.exports = SchemaBuilder;

@@ -1,15 +1,14 @@
-import Database from '../database/connection';
+const Database = require('../database/connection');
 
-export abstract class Seeder {
-  protected connection?: string;
-  protected db = Database;
-  protected batchSize: number = 1000;
-
-  abstract run(): Promise<void>;
+class Seeder {
+  constructor() {
+    this.db = Database;
+    this.batchSize = 1000;
+  }
 
   // Batch processing utilities
-  protected async createInBatches<T>(factory: any, count: number, attributes: any = {}): Promise<T[]> {
-    const results: T[] = [];
+  async createInBatches(factory, count, attributes = {}) {
+    const results = [];
     const batches = Math.ceil(count / this.batchSize);
     
     for (let i = 0; i < batches; i++) {
@@ -25,7 +24,7 @@ export abstract class Seeder {
     return results;
   }
 
-  protected async disableForeignKeyChecks(): Promise<void> {
+  async disableForeignKeyChecks() {
     const client = this.db.connection(this.connection).client.config.client;
     
     if (client === 'mysql2') {
@@ -35,7 +34,7 @@ export abstract class Seeder {
     }
   }
   
-  protected async enableForeignKeyChecks(): Promise<void> {
+  async enableForeignKeyChecks() {
     const client = this.db.connection(this.connection).client.config.client;
     
     if (client === 'mysql2') {
@@ -45,8 +44,11 @@ export abstract class Seeder {
     }
   }
 
-  protected async call(seeders: (new () => Seeder)[]): Promise<void> {
-    for (const SeederClass of seeders) {
+  async call(seeders) {
+    // Handle both single seeder and array of seeders
+    const seederArray = Array.isArray(seeders) ? seeders : [seeders];
+    
+    for (const SeederClass of seederArray) {
       const seeder = new SeederClass();
       if (this.connection) {
         seeder.connection = this.connection;
@@ -56,7 +58,7 @@ export abstract class Seeder {
     }
   }
 
-  protected async callWith(seeders: Record<string, new () => Seeder>, connection?: string): Promise<void> {
+  async callWith(seeders, connection) {
     for (const [name, SeederClass] of Object.entries(seeders)) {
       const seeder = new SeederClass();
       if (connection || this.connection) {
@@ -67,16 +69,17 @@ export abstract class Seeder {
     }
   }
 
-  protected async callOnce(SeederClass: new () => Seeder, identifier: string): Promise<void> {
+  async callOnce(SeederClass, identifier) {
     const tableName = 'seeder_log';
     
     // Ensure seeder log table exists
-    const hasTable = await this.db.schema.hasTable(tableName);
+    const knex = this.db.getInstance();
+    const hasTable = await knex.schema.hasTable(tableName);
     if (!hasTable) {
-      await this.db.schema.createTable(tableName, (table) => {
+      await knex.schema.createTable(tableName, (table) => {
         table.increments('id');
         table.string('seeder');
-        table.timestamp('executed_at').defaultTo(this.db.fn.now());
+        table.timestamp('executed_at').defaultTo(knex.fn.now());
       });
     }
     
@@ -103,9 +106,9 @@ export abstract class Seeder {
     console.log(`Seeded: ${identifier}`);
   }
 
-  protected async progress(total: number, callback: (progress: (completed: number) => void) => Promise<void>): Promise<void> {
+  async progress(total, callback) {
     let completed = 0;
-    const updateProgress = (count: number) => {
+    const updateProgress = (count) => {
       completed += count;
       const percentage = Math.round((completed / total) * 100);
       console.log(`Progress: ${percentage}% (${completed}/${total})`);
@@ -114,11 +117,11 @@ export abstract class Seeder {
     await callback(updateProgress);
   }
 
-  protected async truncate(table: string): Promise<void> {
+  async truncate(table) {
     await this.db.table(table, this.connection).truncate();
   }
 
-  protected async truncateInOrder(tables: string[]): Promise<void> {
+  async truncateInOrder(tables) {
     await this.disableForeignKeyChecks();
     
     for (const table of tables) {
@@ -128,23 +131,23 @@ export abstract class Seeder {
     await this.enableForeignKeyChecks();
   }
 
-  protected async wipeDatabase(): Promise<void> {
+  async wipeDatabase() {
     const knex = this.db.connection(this.connection);
-    let tables: string[] = [];
+    let tables = [];
     
     if (knex.client.config.client === 'sqlite3') {
       const result = await knex.raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
-      tables = result.map((row: any) => row.name);
+      tables = result.map((row) => row.name);
     } else if (knex.client.config.client === 'mysql2') {
       const result = await knex.raw('SHOW TABLES');
-      tables = result[0].map((row: any) => Object.values(row)[0] as string);
+      tables = result[0].map((row) => Object.values(row)[0]);
     } else if (knex.client.config.client === 'pg') {
       const result = await knex.raw("SELECT tablename FROM pg_tables WHERE schemaname = 'public'");
-      tables = result.rows.map((row: any) => row.tablename);
+      tables = result.rows.map((row) => row.tablename);
     }
     
     await this.truncateInOrder(tables);
   }
 }
 
-export default Seeder;
+module.exports = Seeder;

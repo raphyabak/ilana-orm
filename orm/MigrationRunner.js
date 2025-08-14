@@ -1,42 +1,29 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import Database from '../database/connection';
-import SchemaBuilder from '../database/schema-builder';
+const fs = require('fs');
+const path = require('path');
+const Database = require('../database/connection');
+const SchemaBuilder = require('../database/schema-builder');
+
+let config = {};
 
 // Auto-load configuration on first import
 (function autoLoadConfig() {
   const configPath = path.join(process.cwd(), 'ilana.config.js');
   if (fs.existsSync(configPath)) {
     delete require.cache[configPath];
-    require(configPath); // Config file handles Database.configure()
+    config = require(configPath) || {}; // Config file handles Database.configure()
   }
 })();
 
-export interface Migration {
-  connection?: string;
-  up(schemaBuilder: SchemaBuilder): Promise<void>;
-  down(schemaBuilder: SchemaBuilder): Promise<void>;
-}
-
-export interface MigrationRecord {
-  id: number;
-  migration: string;
-  batch: number;
-  executed_at: Date;
-}
-
-export class MigrationRunner {
-  private migrationsPath: string;
-  private tableName: string = 'migrations';
-
-  constructor(migrationsPath: string = './migrations') {
-    this.migrationsPath = migrationsPath;
+class MigrationRunner {
+  constructor() {
+    this.migrationsPath = config.migrations?.directory || './database/migrations';
+    this.tableName = config.migrations?.tableName || 'migrations';
   }
 
-  async ensureMigrationsTable(): Promise<void> {
+  async ensureMigrationsTable() {
     const schema = new SchemaBuilder();
     const hasTable = await schema.hasTable(this.tableName);
-    
+
     if (!hasTable) {
       await schema.createTable(this.tableName, (table) => {
         table.increments('id');
@@ -47,41 +34,41 @@ export class MigrationRunner {
     }
   }
 
-  async getPendingMigrations(): Promise<string[]> {
+  async getPendingMigrations() {
     await this.ensureMigrationsTable();
-    
+
     const executedMigrations = await Database.table(this.tableName)
       .select('migration')
       .then(rows => rows.map(row => row.migration));
 
     const allMigrations = this.getAllMigrationFiles();
-    
+
     return allMigrations.filter(migration => !executedMigrations.includes(migration));
   }
 
-  async getExecutedMigrations(): Promise<MigrationRecord[]> {
+  async getExecutedMigrations() {
     await this.ensureMigrationsTable();
-    
+
     return Database.table(this.tableName)
       .select('*')
       .orderBy('batch', 'desc')
       .orderBy('migration', 'desc');
   }
 
-  async migrate(connection?: string, onlyFile?: string, toFile?: string): Promise<void> {
+  async migrate(connection, onlyFile, toFile) {
     let pendingMigrations = await this.getPendingMigrations();
-    
+
     if (onlyFile) {
       pendingMigrations = pendingMigrations.filter(m => m.includes(onlyFile));
     }
-    
+
     if (toFile) {
       const toIndex = pendingMigrations.findIndex(m => m.includes(toFile));
       if (toIndex >= 0) {
         pendingMigrations = pendingMigrations.slice(0, toIndex + 1);
       }
     }
-    
+
     if (pendingMigrations.length === 0) {
       console.log('Nothing to migrate.');
       return;
@@ -94,38 +81,38 @@ export class MigrationRunner {
 
     for (const migrationFile of pendingMigrations) {
       console.log(`Migrating: ${migrationFile}`);
-      
+
       const migration = await this.loadMigration(migrationFile);
       const migrationConnection = migration.connection || connection;
       const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
-      
+
       await migration.up(migrationSchema);
-      
+
       await Database.table(this.tableName, migrationConnection).insert({
         migration: migrationFile,
         batch,
         executed_at: new Date()
       });
-      
+
       console.log(`Migrated: ${migrationFile}`);
     }
 
     console.log('Migration completed.');
   }
 
-  async rollback(steps: number = 1, connection?: string, toFile?: string): Promise<void> {
+  async rollback(steps = 1, connection, toFile) {
     const executedMigrations = await Database.table(this.tableName, connection)
       .select('*')
       .orderBy('batch', 'desc')
       .orderBy('migration', 'desc');
-    
+
     if (executedMigrations.length === 0) {
       console.log('Nothing to rollback.');
       return;
     }
 
     let migrationsToRollback = executedMigrations;
-    
+
     if (toFile) {
       const toIndex = executedMigrations.findIndex(m => m.migration.includes(toFile));
       if (toIndex >= 0) {
@@ -142,62 +129,62 @@ export class MigrationRunner {
 
     for (const migrationRecord of migrationsToRollback) {
       console.log(`Rolling back: ${migrationRecord.migration}`);
-      
+
       const migration = await this.loadMigration(migrationRecord.migration);
       const migrationConnection = migration.connection || connection;
       const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
-      
+
       await migration.down(migrationSchema);
-      
+
       await Database.table(this.tableName, migrationConnection)
         .where('migration', migrationRecord.migration)
         .delete();
-      
+
       console.log(`Rolled back: ${migrationRecord.migration}`);
     }
 
     console.log('Rollback completed.');
   }
 
-  async reset(): Promise<void> {
+  async reset(connection) {
     const executedMigrations = await this.getExecutedMigrations();
-    
+
     if (executedMigrations.length === 0) {
       console.log('Nothing to reset.');
       return;
     }
 
-    const schema = new SchemaBuilder();
+    const schema = new SchemaBuilder(connection);
 
     console.log(`Resetting ${executedMigrations.length} migrations...`);
 
     for (const migrationRecord of executedMigrations) {
       console.log(`Rolling back: ${migrationRecord.migration}`);
-      
+
       const migration = await this.loadMigration(migrationRecord.migration);
-      const migrationConnection = migration.connection;
+      const migrationConnection = migration.connection || connection;
       const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
-      
+
       await migration.down(migrationSchema);
-      
+
       console.log(`Rolled back: ${migrationRecord.migration}`);
     }
 
-    await Database.table(this.tableName).delete();
+    await Database.table(this.tableName, connection).delete();
     console.log('Reset completed.');
   }
 
-  async refresh(connection?: string): Promise<void> {
+  async refresh(connection) {
     await this.reset(connection);
     await this.migrate(connection);
   }
 
-  async fresh(connection?: string): Promise<void> {
+  async fresh(connection) {
     await this.wipe(connection);
     await this.migrate(connection);
   }
 
-  async list(connection?: string): Promise<void> {
+  async list(connection) {
     const executedMigrations = await Database.table(this.tableName, connection)
       .select('*')
       .orderBy('batch')
@@ -211,52 +198,54 @@ export class MigrationRunner {
     }
   }
 
-  async unlock(connection?: string): Promise<void> {
+  async unlock(connection) {
     // In a real implementation, this would unlock migration locks
     console.log('Migration locks cleared.');
   }
 
-  async wipe(connection?: string): Promise<void> {
+  async wipe(connection) {
     const schema = new SchemaBuilder(connection);
     const knex = Database.connection(connection);
-    
+
     // Get all table names
-    let tables: string[] = [];
-    
+    let tables = [];
+
     if (knex.client.config.client === 'sqlite3') {
       const result = await knex.raw("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
-      tables = result.map((row: any) => row.name);
+      tables = result.map((row) => row.name);
     } else if (knex.client.config.client === 'mysql2') {
       const result = await knex.raw('SHOW TABLES');
-      tables = result[0].map((row: any) => Object.values(row)[0] as string);
+      tables = result[0].map((row) => Object.values(row)[0]);
     } else if (knex.client.config.client === 'pg') {
       const result = await knex.raw("SELECT tablename FROM pg_tables WHERE schemaname = 'public'");
-      tables = result.rows.map((row: any) => row.tablename);
+      tables = result.rows.map((row) => row.tablename);
     }
-    
+
     console.log(`Dropping ${tables.length} tables...`);
-    
+
     // Disable foreign key checks
     if (knex.client.config.client === 'mysql2') {
       await knex.raw('SET FOREIGN_KEY_CHECKS = 0');
     }
-    
+
     for (const table of tables) {
       await schema.dropTableIfExists(table);
       console.log(`Dropped table: ${table}`);
     }
-    
+
     // Re-enable foreign key checks
     if (knex.client.config.client === 'mysql2') {
       await knex.raw('SET FOREIGN_KEY_CHECKS = 1');
     }
-    
+
     console.log('Database wiped.');
   }
 
-  async status(): Promise<void> {
+  async status(connection) {
+    await this.ensureMigrationsTable();
+    
     const allMigrations = this.getAllMigrationFiles();
-    const executedMigrations = await Database.table(this.tableName)
+    const executedMigrations = await Database.table(this.tableName, connection)
       .select('migration')
       .then(rows => rows.map(row => row.migration));
 
@@ -269,28 +258,29 @@ export class MigrationRunner {
     }
   }
 
-  generateMigration(name: string, tableName?: string, isCreate?: boolean): string {
+  generateMigration(name, tableName, isCreate) {
     const timestamp = new Date().toISOString()
       .replace(/[-:]/g, '')
       .replace(/\..+/, '')
       .replace('T', '');
-    
-    const filename = `${timestamp}_${name}.ts`;
+
+    const isTS = this.isTypeScriptProject();
+    const filename = `${timestamp}_${name}.${isTS ? 'ts' : 'js'}`;
     const filepath = path.join(this.migrationsPath, filename);
 
     const template = this.getMigrationTemplate(name, tableName, isCreate);
-    
+
     if (!fs.existsSync(this.migrationsPath)) {
       fs.mkdirSync(this.migrationsPath, { recursive: true });
     }
 
     fs.writeFileSync(filepath, template);
-    
+
     console.log(`Created migration: ${filename}`);
     return filename;
   }
 
-  private getAllMigrationFiles(): string[] {
+  getAllMigrationFiles() {
     if (!fs.existsSync(this.migrationsPath)) {
       return [];
     }
@@ -300,29 +290,40 @@ export class MigrationRunner {
       .sort();
   }
 
-  private async loadMigration(filename: string): Promise<Migration> {
+  async loadMigration(filename) {
     const filepath = path.resolve(this.migrationsPath, filename);
     delete require.cache[filepath];
     const migrationModule = require(filepath);
-    
+
     const MigrationClass = migrationModule.default || migrationModule;
-    return new MigrationClass();
+
+    // Check if it's already an instance or needs to be instantiated
+    if (typeof MigrationClass === 'function') {
+      return new MigrationClass();
+    } else if (typeof MigrationClass === 'object' && MigrationClass.up && MigrationClass.down) {
+      return MigrationClass;
+    } else {
+      throw new Error(`Invalid migration format in ${filename}. Migration must export a class or object with up() and down() methods.`);
+    }
   }
 
-  private async getNextBatchNumber(): Promise<number> {
+  async getNextBatchNumber() {
     const result = await Database.table(this.tableName)
       .max('batch as max_batch')
       .first();
-    
+
     return (result?.max_batch || 0) + 1;
   }
 
-  private getMigrationTemplate(name: string, tableName?: string, isCreate?: boolean): string {
+  getMigrationTemplate(name, tableName, isCreate) {
     const className = this.toPascalCase(name);
     const table = tableName || this.getTableNameFromMigration(name);
-    
+
+    const isTS = this.isTypeScriptProject();
+
     if (isCreate || name.includes('create_')) {
-      return `import SchemaBuilder from '../database/schema-builder';
+      return isTS ?
+        `import SchemaBuilder from 'ilana-orm/database/schema-builder';
 
 export default class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -338,9 +339,29 @@ export default class ${className} {
     await schema.dropTable('${table}');
   }
 }
+` :
+        `const SchemaBuilder = require('ilana-orm/database/schema-builder');
+
+class ${className} {
+  // connection = 'mysql'; // Uncomment to use specific connection
+  
+  async up(schema) {
+    await schema.createTable('${table}', (table) => {
+      table.increments('id');
+      table.timestamps();
+    });
+  }
+
+  async down(schema) {
+    await schema.dropTable('${table}');
+  }
+}
+
+module.exports = ${className};
 `;
     } else if (tableName) {
-      return `import SchemaBuilder from '../database/schema-builder';
+      return isTS ?
+        `import SchemaBuilder from 'ilana-orm/database/schema-builder';
 
 export default class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -359,10 +380,33 @@ export default class ${className} {
     });
   }
 }
+` :
+        `const SchemaBuilder = require('ilana-orm/database/schema-builder');
+
+class ${className} {
+  // connection = 'mysql'; // Uncomment to use specific connection
+  
+  async up(schema) {
+    await schema.table('${table}', (table) => {
+      // Add your column modifications here
+      // table.string('new_column').nullable();
+    });
+  }
+
+  async down(schema) {
+    await schema.table('${table}', (table) => {
+      // Reverse your modifications here
+      // table.dropColumn('new_column');
+    });
+  }
+}
+
+module.exports = ${className};
 `;
     }
-    
-    return `import SchemaBuilder from '../database/schema-builder';
+
+    return isTS ?
+      `import SchemaBuilder from 'ilana-orm/database/schema-builder';
 
 export default class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -375,18 +419,40 @@ export default class ${className} {
     // Add your rollback logic here
   }
 }
+` :
+      `const SchemaBuilder = require('ilana-orm/database/schema-builder');
+
+class ${className} {
+  // connection = 'mysql'; // Uncomment to use specific connection
+  
+  async up(schema) {
+    // Add your migration logic here
+  }
+
+  async down(schema) {
+    // Add your rollback logic here
+  }
+}
+
+module.exports = ${className};
 `;
   }
 
-  private toPascalCase(str: string): string {
+  isTypeScriptProject() {
+    const fs = require('fs');
+    const path = require('path');
+    return fs.existsSync(path.join(process.cwd(), 'tsconfig.json'));
+  }
+
+  toPascalCase(str) {
     return str.replace(/(^|_)(.)/g, (_, __, char) => char.toUpperCase());
   }
 
-  private getTableNameFromMigration(name: string): string {
+  getTableNameFromMigration(name) {
     // Extract table name from migration name
     const match = name.match(/create_(.+)_table/);
     return match ? match[1] : 'table_name';
   }
 }
 
-export default MigrationRunner;
+module.exports = MigrationRunner;
