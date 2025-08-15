@@ -131,8 +131,8 @@ function generateModel(name, options = {}) {
 
 function getModelTemplate(className, tableName) {
   if (isTypeScriptProject()) {
-    return `import Model from 'ilana-orm/orm/Model';
-// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
+    return `import Model from 'ilana-orm/orm/Model.js';
+// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts.js';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
@@ -223,7 +223,7 @@ module.exports = ${className};
 
 function getPivotModelTemplate(className, tableName) {
   if (isTypeScriptProject()) {
-    return `import Model from 'ilana-orm/orm/Model';
+    return `import Model from 'ilana-orm/orm/Model.js';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
@@ -260,8 +260,8 @@ function generateFactory(className) {
   }
 
   const template = isTypeScriptProject() ?
-    `import { defineFactory } from 'ilana-orm/orm/Factory';
-import ${className} from '../../models/${className}';
+    `import { defineFactory } from 'ilana-orm/orm/Factory.js';
+import ${className} from '../../models/${className}.js';
 
 export default defineFactory(${className}, (faker) => ({
   // Define your factory attributes here
@@ -298,9 +298,9 @@ function generateSeeder(className) {
   }
 
   const template = isTypeScriptProject() ?
-    `import Seeder from 'ilana-orm/orm/Seeder';
-import ${className} from '../../models/${className}';
-import '../factories/${className}Factory';
+    `import Seeder from 'ilana-orm/orm/Seeder.js';
+import ${className} from '../../models/${className}.js';
+import '../factories/${className}Factory.js';
 
 export default class ${className}Seeder extends Seeder {
   async run(): Promise<void> {
@@ -357,7 +357,7 @@ const commands = {
 
 function getESModuleConfigTemplate() {
   return `import 'dotenv/config';
-import Database from 'ilana-orm/database/connection';
+import Database from 'ilana-orm/database/connection.js';
 
 const config = {
   default: process.env.DB_CONNECTION || 'mysql',
@@ -863,7 +863,7 @@ DB_TIMEZONE=UTC
     }
 
     const template = isTypeScriptProject() ?
-      `${modelName ? `import ${modelName} from '../models/${modelName}';\n\n` : ''}export default class ${className}Observer {
+      `${modelName ? `import ${modelName} from '../models/${modelName}.js';\n\n` : ''}export default class ${className}Observer {
   async creating(model: ${modelName || 'any'}): Promise<void> {}
   async created(model: ${modelName || 'any'}): Promise<void> {}
   async updating(model: ${modelName || 'any'}): Promise<void> {}
@@ -911,7 +911,7 @@ module.exports = ${className}Observer;
     }
 
     const template = isTypeScriptProject() ?
-      `import { CustomCast } from 'ilana-orm/orm/Model';
+      `import { CustomCast } from 'ilana-orm/orm/Model.js';
 
 export default class ${className}Cast implements CustomCast {
   get(value: any): any {
