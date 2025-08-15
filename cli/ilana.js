@@ -30,13 +30,24 @@ const defaultConfig = {
 };
 
 // Load configuration and auto-initialize
-function loadConfig() {
+async function loadConfig() {
   const configPath = path.join(process.cwd(), 'ilana.config.js');
   if (fs.existsSync(configPath)) {
     delete require.cache[configPath];
-    const config = require(configPath);
-    // Config file already initializes database
-    return config;
+    try {
+      const config = require(configPath);
+      // Config file already initializes database
+      return config;
+    } catch (error) {
+      if (error.code === 'ERR_REQUIRE_ESM') {
+        // Handle ES modules
+        const configModule = await import(configPath);
+        const config = configModule.default || configModule;
+        return config;
+      } else {
+        throw error;
+      }
+    }
   }
   // No config file found - don't initialize with hardcoded default
   console.error('No ilana.config.js found. Run "npx ilana setup" first.');
@@ -44,8 +55,8 @@ function loadConfig() {
 }
 
 // Initialize database
-function initializeDatabase() {
-  loadConfig(); // Config handles initialization
+async function initializeDatabase() {
+  await loadConfig(); // Config handles initialization
 }
 
 // Helper functions
@@ -449,7 +460,7 @@ DB_TIMEZONE=UTC
       }
     }
 
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     runner.generateMigration(name, tableName, isCreate);
   },
@@ -524,14 +535,14 @@ DB_TIMEZONE=UTC
     }
 
     if (options.migration || options.all) {
-      initializeDatabase();
+      await initializeDatabase();
     }
 
     generateModel(name, options);
   },
 
   async migrate(...args) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
 
     let connection;
@@ -565,7 +576,7 @@ DB_TIMEZONE=UTC
   },
 
   async 'migrate:fresh'(...args) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
 
     let connection;
@@ -591,21 +602,21 @@ DB_TIMEZONE=UTC
   },
 
   async 'migrate:list'(connection) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.list(connection);
     process.exit(0);
   },
 
   async 'migrate:unlock'(connection) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.unlock(connection);
     process.exit(0);
   },
 
   async 'migrate:rollback'(...args) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
 
     let steps = 1;
@@ -641,28 +652,28 @@ DB_TIMEZONE=UTC
   },
 
   async 'migrate:reset'(connection) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.reset(connection);
     process.exit(0);
   },
 
   async 'migrate:refresh'(connection) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.refresh(connection);
     process.exit(0);
   },
 
   async 'migrate:status'(connection) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.status(connection);
     process.exit(0);
   },
 
   async seed(...args) {
-    initializeDatabase();
+    await initializeDatabase();
 
     let seederName;
     let connection;
@@ -710,7 +721,19 @@ DB_TIMEZONE=UTC
       console.log(`Seeding: ${file}`);
       const filepath = path.join(seedsPath, file);
       delete require.cache[filepath];
-      const seederModule = require(filepath);
+      
+      let seederModule;
+      try {
+        seederModule = require(filepath);
+      } catch (error) {
+        if (error.code === 'ERR_REQUIRE_ESM') {
+          // Handle ES modules
+          seederModule = await import(filepath);
+        } else {
+          throw error;
+        }
+      }
+      
       const SeederClass = seederModule.default || seederModule;
       const seeder = new SeederClass();
 
@@ -734,7 +757,7 @@ DB_TIMEZONE=UTC
   },
 
   async 'db:wipe'(connection) {
-    initializeDatabase();
+    await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.wipe(connection);
     process.exit(0);

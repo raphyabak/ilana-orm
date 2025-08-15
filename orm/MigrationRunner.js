@@ -6,11 +6,24 @@ const SchemaBuilder = require('../database/schema-builder');
 let config = {};
 
 // Auto-load configuration on first import
-(function autoLoadConfig() {
+(async function autoLoadConfig() {
   const configPath = path.join(process.cwd(), 'ilana.config.js');
   if (fs.existsSync(configPath)) {
     delete require.cache[configPath];
-    config = require(configPath) || {}; // Config file handles Database.configure()
+    try {
+      config = require(configPath) || {}; // Config file handles Database.configure()
+    } catch (error) {
+      if (error.code === 'ERR_REQUIRE_ESM') {
+        // Handle ES modules
+        const configModule = await import(configPath);
+        config = configModule.default || configModule;
+        if (typeof config.configure === 'function') {
+          config.configure(config);
+        }
+      } else {
+        throw error;
+      }
+    }
   }
 })();
 
@@ -293,7 +306,18 @@ class MigrationRunner {
   async loadMigration(filename) {
     const filepath = path.resolve(this.migrationsPath, filename);
     delete require.cache[filepath];
-    const migrationModule = require(filepath);
+    
+    let migrationModule;
+    try {
+      migrationModule = require(filepath);
+    } catch (error) {
+      if (error.code === 'ERR_REQUIRE_ESM') {
+        // Handle ES modules
+        migrationModule = await import(filepath);
+      } else {
+        throw error;
+      }
+    }
 
     const MigrationClass = migrationModule.default || migrationModule;
 
