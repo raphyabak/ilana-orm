@@ -64,6 +64,19 @@ function isTypeScriptProject() {
   return fs.existsSync(path.join(process.cwd(), 'tsconfig.json'));
 }
 
+function isESModuleProject() {
+  const packageJsonPath = path.join(process.cwd(), 'package.json');
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      return packageJson.type === 'module';
+    } catch (error) {
+      return false;
+    }
+  }
+  return false;
+}
+
 function getFileExtension() {
   return isTypeScriptProject() ? '.ts' : '.js';
 }
@@ -339,7 +352,69 @@ const commands = {
     // Create config file if it doesn't exist
     const configPath = 'ilana.config.js';
     if (!fs.existsSync(configPath)) {
-      const configTemplate = `require('dotenv').config();
+      const isESModule = isESModuleProject();
+      const configTemplate = isESModule ? getESModuleConfigTemplate() : getCommonJSConfigTemplate();
+
+function getESModuleConfigTemplate() {
+  return `import 'dotenv/config';
+import Database from 'ilana-orm/database/connection';
+
+const config = {
+  default: process.env.DB_CONNECTION || 'mysql',
+  timezone: process.env.DB_TIMEZONE || 'UTC',
+  
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: {
+        filename: process.env.DB_FILENAME || './database.sqlite'
+      },
+      useNullAsDefault: true
+    },
+    
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 3306,
+        user: process.env.DB_USERNAME || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database',
+        timezone: process.env.DB_TIMEZONE || 'UTC'
+      }
+    },
+    
+    postgres: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        user: process.env.DB_USERNAME || 'postgres',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database'
+      }
+    }
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+    tableName: 'migrations'
+  },
+  
+  seeds: {
+    directory: './database/seeds'
+  }
+};
+
+// Auto-initialize database connections
+Database.configure(config);
+
+export default config;
+`;
+}
+
+function getCommonJSConfigTemplate() {
+  return `require('dotenv').config();
 const Database = require('ilana-orm/database/connection');
 
 const config = {
@@ -394,6 +469,7 @@ Database.configure(config);
 
 module.exports = config;
 `;
+}
       fs.writeFileSync(configPath, configTemplate);
       console.log(`Created config file: ${configPath}`);
     }
