@@ -108,6 +108,122 @@ function pluralize(str) {
   return str + 's';
 }
 
+function getESModuleConfigTemplate() {
+  return `import 'dotenv/config';
+import Database from 'ilana-orm/database/connection';
+
+const config = {
+  default: process.env.DB_CONNECTION || 'mysql',
+  timezone: process.env.DB_TIMEZONE || 'UTC',
+  
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: {
+        filename: process.env.DB_FILENAME || './database.sqlite'
+      },
+      useNullAsDefault: true
+    },
+    
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 3306,
+        user: process.env.DB_USERNAME || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database',
+        timezone: process.env.DB_TIMEZONE || 'UTC'
+      }
+    },
+    
+    postgres: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        user: process.env.DB_USERNAME || 'postgres',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database'
+      }
+    }
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+    tableName: 'migrations'
+  },
+  
+  seeds: {
+    directory: './database/seeds'
+  }
+};
+
+// Auto-initialize database connections
+Database.configure(config);
+
+export default config;
+`;
+}
+
+function getCommonJSConfigTemplate() {
+  return `require('dotenv').config();
+const Database = require('ilana-orm/database/connection');
+
+const config = {
+  default: process.env.DB_CONNECTION || 'mysql',
+  timezone: process.env.DB_TIMEZONE || 'UTC',
+  
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: {
+        filename: process.env.DB_FILENAME || './database.sqlite'
+      },
+      useNullAsDefault: true
+    },
+    
+    mysql: {
+      client: 'mysql2',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 3306,
+        user: process.env.DB_USERNAME || 'root',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database',
+        timezone: process.env.DB_TIMEZONE || 'UTC'
+      }
+    },
+    
+    postgres: {
+      client: 'pg',
+      connection: {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        user: process.env.DB_USERNAME || 'postgres',
+        password: process.env.DB_PASSWORD || '',
+        database: process.env.DB_DATABASE || 'your_database'
+      }
+    }
+  },
+  
+  migrations: {
+    directory: './database/migrations',
+    tableName: 'migrations'
+  },
+  
+  seeds: {
+    directory: './database/seeds'
+  }
+};
+
+// Auto-initialize database connections
+Database.configure(config);
+
+module.exports = config;
+`;
+}
+
 function generateModel(name, options = {}) {
   const className = toPascalCase(name);
   const tableName = pluralize(toSnakeCase(name));
@@ -438,124 +554,6 @@ const commands = {
       fs.writeFileSync(configPath, configTemplate);
       console.log(`Created config file: ${configPath}`);
     }
-  },
-};
-
-function getESModuleConfigTemplate() {
-  return `import 'dotenv/config';
-import Database from 'ilana-orm/database/connection.js';
-
-const config = {
-  default: process.env.DB_CONNECTION || 'mysql',
-  timezone: process.env.DB_TIMEZONE || 'UTC',
-  
-  connections: {
-    sqlite: {
-      client: 'sqlite3',
-      connection: {
-        filename: process.env.DB_FILENAME || './database.sqlite'
-      },
-      useNullAsDefault: true
-    },
-    
-    mysql: {
-      client: 'mysql2',
-      connection: {
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 3306,
-        user: process.env.DB_USERNAME || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_DATABASE || 'your_database',
-        timezone: process.env.DB_TIMEZONE || 'UTC'
-      }
-    },
-    
-    postgres: {
-      client: 'pg',
-      connection: {
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 5432,
-        user: process.env.DB_USERNAME || 'postgres',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_DATABASE || 'your_database'
-      }
-    }
-  },
-  
-  migrations: {
-    directory: './database/migrations',
-    tableName: 'migrations'
-  },
-  
-  seeds: {
-    directory: './database/seeds'
-  }
-};
-
-// Auto-initialize database connections
-Database.configure(config);
-
-export default config;
-`;
-}
-
-function getCommonJSConfigTemplate() {
-  return `require('dotenv').config();
-const Database = require('ilana-orm/database/connection');
-
-const config = {
-  default: process.env.DB_CONNECTION || 'mysql',
-  timezone: process.env.DB_TIMEZONE || 'UTC',
-  
-  connections: {
-    sqlite: {
-      client: 'sqlite3',
-      connection: {
-        filename: process.env.DB_FILENAME || './database.sqlite'
-      },
-      useNullAsDefault: true
-    },
-    
-    mysql: {
-      client: 'mysql2',
-      connection: {
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 3306,
-        user: process.env.DB_USERNAME || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_DATABASE || 'your_database',
-        timezone: process.env.DB_TIMEZONE || 'UTC'
-      }
-    },
-    
-    postgres: {
-      client: 'pg',
-      connection: {
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 5432,
-        user: process.env.DB_USERNAME || 'postgres',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_DATABASE || 'your_database'
-      }
-    }
-  },
-  
-  migrations: {
-    directory: './database/migrations',
-    tableName: 'migrations'
-  },
-  
-  seeds: {
-    directory: './database/seeds'
-  }
-};
-
-// Auto-initialize database connections
-Database.configure(config);
-
-module.exports = config;
-`;
-}
 
     // Create .env file if it doesn't exist
     const envPath = '.env';
@@ -600,6 +598,7 @@ DB_TIMEZONE=UTC
     console.log('2. Run: ilana make:model User -m');
     console.log('3. Run: ilana migrate');
   },
+
   async 'make:migration'(name, ...flags) {
     if (!name) {
       console.error('Migration name is required');
@@ -700,329 +699,6 @@ DB_TIMEZONE=UTC
     generateModel(name, options);
   },
 
-  async migrate(...args) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-
-    let connection;
-    let onlyFile;
-    let toFile;
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === '--connection' && args[i + 1]) {
-        connection = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--connection=')) {
-        connection = arg.split('=')[1];
-      } else if (arg === '--only' && args[i + 1]) {
-        onlyFile = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--only=')) {
-        onlyFile = arg.split('=')[1];
-      } else if (arg === '--to' && args[i + 1]) {
-        toFile = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--to=')) {
-        toFile = arg.split('=')[1];
-      } else if (!arg.startsWith('--')) {
-        connection = arg;
-      }
-    }
-
-    await runner.migrate(connection, onlyFile, toFile);
-    process.exit(0);
-  },
-
-  async 'migrate:fresh'(...args) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-
-    let connection;
-    let withSeed = false;
-
-    for (const arg of args) {
-      if (arg === '--seed') {
-        withSeed = true;
-      } else if (arg.startsWith('--connection=')) {
-        connection = arg.split('=')[1];
-      } else if (!arg.startsWith('--')) {
-        connection = arg;
-      }
-    }
-
-    await runner.fresh(connection);
-
-    if (withSeed) {
-      await commands.seed();
-    }
-
-    process.exit(0);
-  },
-
-  async 'migrate:list'(connection) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-    await runner.list(connection);
-    process.exit(0);
-  },
-
-  async 'migrate:unlock'(connection) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-    await runner.unlock(connection);
-    process.exit(0);
-  },
-
-  async 'migrate:rollback'(...args) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-
-    let steps = 1;
-    let connection;
-    let toFile;
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === '--step' && args[i + 1]) {
-        steps = parseInt(args[i + 1]);
-        i++;
-      } else if (arg.startsWith('--step=')) {
-        steps = parseInt(arg.split('=')[1]);
-      } else if (arg === '--connection' && args[i + 1]) {
-        connection = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--connection=')) {
-        connection = arg.split('=')[1];
-      } else if (arg === '--to' && args[i + 1]) {
-        toFile = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--to=')) {
-        toFile = arg.split('=')[1];
-      } else if (!isNaN(parseInt(arg))) {
-        steps = parseInt(arg);
-      } else if (!arg.startsWith('--')) {
-        connection = arg;
-      }
-    }
-
-    await runner.rollback(steps, connection, toFile);
-    process.exit(0);
-  },
-
-  async 'migrate:reset'(connection) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-    await runner.reset(connection);
-    process.exit(0);
-  },
-
-  async 'migrate:refresh'(connection) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-    await runner.refresh(connection);
-    process.exit(0);
-  },
-
-  async 'migrate:status'(connection) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-    await runner.status(connection);
-    process.exit(0);
-  },
-
-  async seed(...args) {
-    await initializeDatabase();
-
-    let seederName;
-    let connection;
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === '--class' && args[i + 1]) {
-        seederName = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--class=')) {
-        seederName = arg.split('=')[1];
-      } else if (arg === '--connection' && args[i + 1]) {
-        connection = args[i + 1];
-        i++;
-      } else if (arg.startsWith('--connection=')) {
-        connection = arg.split('=')[1];
-      } else if (!arg.startsWith('--')) {
-        if (!seederName) seederName = arg;
-        else connection = arg;
-      }
-    }
-
-    const seedsPath = path.join(process.cwd(), 'database/seeds');
-    if (!fs.existsSync(seedsPath)) {
-      console.log('No seeds directory found');
-      process.exit(0);
-    }
-
-    const seedFiles = fs.readdirSync(seedsPath)
-      .filter(file => file.endsWith('.ts') || file.endsWith('.js'))
-      .sort();
-
-    if (seedFiles.length === 0) {
-      console.log('No seed files found');
-      process.exit(0);
-    }
-
-    const filesToRun = seederName
-      ? seedFiles.filter(file => file.includes(seederName))
-      : seedFiles;
-
-    console.log(`Running ${filesToRun.length} seeders...`);
-
-    for (const file of filesToRun) {
-      console.log(`Seeding: ${file}`);
-      const filepath = path.join(seedsPath, file);
-      delete require.cache[filepath];
-      
-      let seederModule;
-      try {
-        seederModule = require(filepath);
-      } catch (error) {
-        if (error.code === 'ERR_REQUIRE_ESM') {
-          // Handle ES modules
-          seederModule = await import(filepath);
-        } else {
-          throw error;
-        }
-      }
-      
-      const SeederClass = seederModule.default || seederModule;
-      const seeder = new SeederClass();
-
-      if (connection) {
-        seeder.connection = connection;
-      }
-
-      if (typeof seeder.run === 'function') {
-        await seeder.run();
-      }
-
-      console.log(`Seeded: ${file}`);
-    }
-
-    console.log('Seeding completed');
-    process.exit(0);
-  },
-
-  async 'db:seed'(seederName) {
-    return commands.seed(seederName);
-  },
-
-  async 'db:wipe'(connection) {
-    await initializeDatabase();
-    const runner = new MigrationRunner();
-    await runner.wipe(connection);
-    process.exit(0);
-  },
-
-  async 'make:observer'(name, ...flags) {
-    if (!name) {
-      console.error('Observer name is required');
-      console.log('Usage: ilana make:observer <ObserverName> [--model=ModelName]');
-      process.exit(1);
-    }
-
-    let modelName = '';
-
-    for (const flag of flags) {
-      if (flag.startsWith('--model=')) {
-        modelName = flag.split('=')[1];
-      }
-    }
-
-    const className = toPascalCase(name.replace('Observer', ''));
-    const fileName = `${className}Observer${getFileExtension()}`;
-    const filePath = path.join(process.cwd(), 'observers', fileName);
-
-    if (!fs.existsSync(path.dirname(filePath))) {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    }
-
-    const template = isTypeScriptProject() ?
-      `${modelName ? `import ${modelName} from '../models/${modelName}.js';\n\n` : ''}export default class ${className}Observer {
-  async creating(model: ${modelName || 'any'}): Promise<void> {}
-  async created(model: ${modelName || 'any'}): Promise<void> {}
-  async updating(model: ${modelName || 'any'}): Promise<void> {}
-  async updated(model: ${modelName || 'any'}): Promise<void> {}
-  async saving(model: ${modelName || 'any'}): Promise<void> {}
-  async saved(model: ${modelName || 'any'}): Promise<void> {}
-  async deleting(model: ${modelName || 'any'}): Promise<void> {}
-  async deleted(model: ${modelName || 'any'}): Promise<void> {}
-}
-` :
-      `${modelName ? `const ${modelName} = require('../models/${modelName}');\n\n` : ''}class ${className}Observer {
-  async creating(model) {}
-  async created(model) {}
-  async updating(model) {}
-  async updated(model) {}
-  async saving(model) {}
-  async saved(model) {}
-  async deleting(model) {}
-  async deleted(model) {}
-}
-
-module.exports = ${className}Observer;
-`;
-
-    fs.writeFileSync(filePath, template);
-    console.log(`Created observer: observers/${fileName}`);
-
-    if (modelName) {
-      console.log(`Observer configured for model: ${modelName}`);
-    }
-  },
-
-  async 'make:cast'(name) {
-    if (!name) {
-      console.error('Cast name is required');
-      process.exit(1);
-    }
-
-    const className = toPascalCase(name.replace('Cast', ''));
-    const fileName = `${className}Cast${getFileExtension()}`;
-    const filePath = path.join(process.cwd(), 'casts', fileName);
-
-    if (!fs.existsSync(path.dirname(filePath))) {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    }
-
-    const template = isTypeScriptProject() ?
-      `import { CustomCast } from 'ilana-orm/orm/Model.js';
-
-export default class ${className}Cast implements CustomCast {
-  get(value: any): any {
-    return value;
-  }
-
-  set(value: any): any {
-    return value;
-  }
-}
-` :
-      `class ${className}Cast {
-  get(value) {
-    return value;
-  }
-
-  set(value) {
-    return value;
-  }
-}
-
-module.exports = ${className}Cast;
-`;
-
-    fs.writeFileSync(filePath, template);
-    console.log(`Created cast: casts/${fileName}`);
-  },
-
   help() {
     console.log(`
 Ilana ORM CLI
@@ -1039,13 +715,6 @@ Available commands:
     -mfs                     Generate model + migration + factory + seeder
   
   make:migration <name>        Create a new migration file
-  migrate [connection]         Run all pending migrations
-  migrate:rollback [steps] [connection]  Rollback the last batch of migrations
-  migrate:reset [connection]   Rollback all migrations
-  migrate:refresh [connection] Reset and re-run all migrations
-  migrate:status [connection]  Show migration status
-  seed [name]                  Run database seeders
-  db:seed [name]               Alias for seed command
   help                         Show this help message
 
 Examples:
@@ -1056,10 +725,6 @@ Examples:
   ilana make:model Permission --all
   ilana make:model UserPost --pivot
   ilana make:migration create_users_table
-  ilana migrate
-  ilana migrate mysql
-  ilana migrate:rollback 2 postgres
-  ilana seed UserSeeder
 `);
   }
 };
