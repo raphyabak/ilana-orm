@@ -31,26 +31,39 @@ const defaultConfig = {
 
 // Load configuration and auto-initialize
 async function loadConfig() {
-  const configPath = path.join(process.cwd(), 'ilana.config.js');
-  if (fs.existsSync(configPath)) {
-    delete require.cache[configPath];
+  const configPathJs = path.join(process.cwd(), 'ilana.config.js');
+  const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
+  
+  // Try .mjs first (ES modules)
+  if (fs.existsSync(configPathMjs)) {
     try {
-      const config = require(configPath);
-      // Config file already initializes database
+      const configModule = await import(configPathMjs);
+      const config = configModule.default || configModule;
+      return config;
+    } catch (error) {
+      console.error('Error loading ilana.config.mjs:', error.message);
+      process.exit(1);
+    }
+  }
+  
+  // Try .js (CommonJS)
+  if (fs.existsSync(configPathJs)) {
+    delete require.cache[configPathJs];
+    try {
+      const config = require(configPathJs);
       return config;
     } catch (error) {
       if (error.code === 'ERR_REQUIRE_ESM') {
-        // Handle ES modules
-        const configModule = await import(configPath);
-        const config = configModule.default || configModule;
-        return config;
+        console.error('Found ilana.config.js but project uses ES modules. Rename to ilana.config.mjs');
+        process.exit(1);
       } else {
         throw error;
       }
     }
   }
-  // No config file found - don't initialize with hardcoded default
-  console.error('No ilana.config.js found. Run "npx ilana setup" first.');
+  
+  // No config file found
+  console.error('No ilana.config.js or ilana.config.mjs found. Run "npx ilana setup" first.');
   process.exit(1);
 }
 
@@ -130,9 +143,11 @@ function generateModel(name, options = {}) {
 }
 
 function getModelTemplate(className, tableName) {
+  const isESModule = isESModuleProject();
+  
   if (isTypeScriptProject()) {
-    return `import Model from 'ilana-orm/orm/Model.js';
-// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts.js';
+    return `import Model from 'ilana-orm/orm/Model';
+// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
@@ -172,6 +187,53 @@ export default class ${className} extends Model {
   //   this.register();
   // }
 }
+`;
+  }
+  
+  if (isESModule) {
+    return `import Model from 'ilana-orm/orm/Model';
+// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
+
+class ${className} extends Model {
+  static table = '${tableName}';
+  static timestamps = true;
+  static softDeletes = false;
+  
+  // For UUID primary keys, uncomment:
+  // static keyType = 'string';
+  // static incrementing = false;
+
+  fillable = [];
+  hidden = [];
+  appends = [];
+  casts = {
+    // Basic casts
+    // is_active: 'boolean',
+    // metadata: 'json',
+    // tags: 'array',
+    
+    // Custom casts
+    // price: new MoneyCast(),
+    // secret: new EncryptedCast('your-key'),
+  };
+
+  // Define relationships here
+  // example() {
+  //   return this.hasMany(RelatedModel, 'foreign_key');
+  // }
+
+  // Define scopes here
+  // static scopeActive(query) {
+  //   query.where('is_active', true);
+  // }
+  
+  // Register for polymorphic relationships
+  // static {
+  //   this.register();
+  // }
+}
+
+export default ${className};
 `;
   }
   
@@ -222,8 +284,10 @@ module.exports = ${className};
 }
 
 function getPivotModelTemplate(className, tableName) {
+  const isESModule = isESModuleProject();
+  
   if (isTypeScriptProject()) {
-    return `import Model from 'ilana-orm/orm/Model.js';
+    return `import Model from 'ilana-orm/orm/Model';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
@@ -233,6 +297,22 @@ export default class ${className} extends Model {
 
   // Define pivot relationships here
 }
+`;
+  }
+  
+  if (isESModule) {
+    return `import Model from 'ilana-orm/orm/Model';
+
+class ${className} extends Model {
+  static table = '${tableName}';
+  static timestamps = true;
+  
+  fillable = [];
+
+  // Define pivot relationships here
+}
+
+export default ${className};
 `;
   }
   
@@ -350,10 +430,16 @@ const commands = {
     }
 
     // Create config file if it doesn't exist
-    const configPath = 'ilana.config.js';
+    const isESModule = isESModuleProject();
+    const configPath = isESModule ? 'ilana.config.mjs' : 'ilana.config.js';
+    
     if (!fs.existsSync(configPath)) {
-      const isESModule = isESModuleProject();
       const configTemplate = isESModule ? getESModuleConfigTemplate() : getCommonJSConfigTemplate();
+      fs.writeFileSync(configPath, configTemplate);
+      console.log(`Created config file: ${configPath}`);
+    }
+  },
+};
 
 function getESModuleConfigTemplate() {
   return `import 'dotenv/config';
@@ -470,9 +556,6 @@ Database.configure(config);
 module.exports = config;
 `;
 }
-      fs.writeFileSync(configPath, configTemplate);
-      console.log(`Created config file: ${configPath}`);
-    }
 
     // Create .env file if it doesn't exist
     const envPath = '.env';

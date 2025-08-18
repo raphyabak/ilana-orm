@@ -8,10 +8,14 @@ const Database = require('../database/connection');
 (function autoLoadConfig() {
   const fs = require('fs');
   const path = require('path');
-  const configPath = path.join(process.cwd(), 'ilana.config.js');
-  if (fs.existsSync(configPath)) {
-    delete require.cache[configPath];
-    require(configPath);
+  const configPathJs = path.join(process.cwd(), 'ilana.config.js');
+  const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
+  
+  if (fs.existsSync(configPathJs)) {
+    delete require.cache[configPathJs];
+    require(configPathJs);
+  } else if (fs.existsSync(configPathMjs)) {
+    // For ES modules, we'll handle this in the _getConfig method
   }
 })();
 
@@ -371,9 +375,19 @@ class Model {
   _getConfig() {
     try {
       const path = require('path');
-      const configPath = path.join(process.cwd(), 'ilana.config.js');
-      delete require.cache[configPath];
-      return require(configPath);
+      const fs = require('fs');
+      const configPathJs = path.join(process.cwd(), 'ilana.config.js');
+      const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
+      
+      if (fs.existsSync(configPathJs)) {
+        delete require.cache[configPathJs];
+        return require(configPathJs);
+      } else if (fs.existsSync(configPathMjs)) {
+        // For ES modules, return a promise or handle async import
+        // For now, return null and let the caller handle it
+        return null;
+      }
+      return null;
     } catch (e) {
       return null;
     }

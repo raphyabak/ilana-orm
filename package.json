@@ -1,9 +1,36 @@
 {
   "name": "ilana-orm",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A fully-featured, Eloquent-style ORM for Node.js with TypeScript support",
   "main": "index.js",
   "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./index.mjs",
+      "require": "./index.js",
+      "types": "./index.d.ts"
+    },
+    "./orm/Model": {
+      "import": "./orm/Model.mjs",
+      "require": "./orm/Model.js",
+      "types": "./orm/Model.d.ts"
+    },
+    "./orm/QueryBuilder": {
+      "import": "./orm/QueryBuilder.mjs",
+      "require": "./orm/QueryBuilder.js",
+      "types": "./orm/QueryBuilder.d.ts"
+    },
+    "./orm/Collection": {
+      "import": "./orm/Collection.mjs",
+      "require": "./orm/Collection.js",
+      "types": "./orm/Collection.d.ts"
+    },
+    "./database/connection": {
+      "import": "./database/connection.mjs",
+      "require": "./database/connection.js",
+      "types": "./database/connection.d.ts"
+    }
+  },
   "bin": {
     "ilana": "cli/ilana.js"
   },
@@ -39,11 +66,14 @@
   },
   "files": [
     "*.js",
+    "*.mjs",
     "*.d.ts",
     "cli/**/*.js",
     "database/**/*.js",
+    "database/**/*.mjs",
     "database/**/*.d.ts",
     "orm/**/*.js",
+    "orm/**/*.mjs",
     "orm/**/*.d.ts",
     "README.md",
     "LICENSE",

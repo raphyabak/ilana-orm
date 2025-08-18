@@ -150,10 +150,13 @@ touch ilana.config.js
 
 ### 2. Configure Database
 
-Create `ilana.config.js` in your project root:
+**For CommonJS projects**, create `ilana.config.js` in your project root:
+
+**For ES Module projects** (with `"type": "module"` in package.json), create `ilana.config.mjs`:
 
 ```javascript
-module.exports = {
+// ilana.config.mjs
+export default {
   default: "sqlite",
 
   connections: {
@@ -212,11 +215,18 @@ This creates:
 
 ### 4. Define the Model
 
-**JavaScript:**
+**JavaScript (CommonJS):**
 
 ```javascript
 // models/User.js
 const Model = require("ilana-orm/orm/Model");
+```
+
+**JavaScript (ES Modules):**
+
+```javascript
+// models/User.js
+import Model from "ilana-orm/orm/Model";
 
 class User extends Model {
   static table = "users";
@@ -246,7 +256,8 @@ class User extends Model {
   }
 }
 
-module.exports = User;
+export default User; // For ES modules
+// module.exports = User; // For CommonJS
 ```
 
 **TypeScript (auto-generated when `tsconfig.json` detected):**
@@ -294,8 +305,14 @@ npx ilana migrate
 
 ### 6. Start Using the Model
 
+**CommonJS:**
 ```javascript
 const User = require("./models/User");
+```
+
+**ES Modules:**
+```javascript
+import User from "./models/User.js";
 
 // Create user
 const user = await User.create({
