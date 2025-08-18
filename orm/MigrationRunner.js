@@ -7,19 +7,27 @@ let config = {};
 
 // Auto-load configuration on first import
 (async function autoLoadConfig() {
-  const configPath = path.join(process.cwd(), 'ilana.config.js');
-  if (fs.existsSync(configPath)) {
-    delete require.cache[configPath];
+  const configPathJs = path.join(process.cwd(), 'ilana.config.js');
+  const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
+  
+  // Try .mjs first (ES modules)
+  if (fs.existsSync(configPathMjs)) {
     try {
-      config = require(configPath) || {}; // Config file handles Database.configure()
+      const configModule = await import(configPathMjs);
+      config = configModule.default || configModule;
+    } catch (error) {
+      console.error('Error loading ilana.config.mjs:', error.message);
+    }
+  }
+  // Try .js (CommonJS)
+  else if (fs.existsSync(configPathJs)) {
+    delete require.cache[configPathJs];
+    try {
+      config = require(configPathJs) || {};
     } catch (error) {
       if (error.code === 'ERR_REQUIRE_ESM') {
-        // Handle ES modules
-        const configModule = await import(configPath);
+        const configModule = await import(configPathJs);
         config = configModule.default || configModule;
-        if (typeof config.configure === 'function') {
-          config.configure(config);
-        }
       } else {
         throw error;
       }
@@ -347,7 +355,7 @@ class MigrationRunner {
 
     if (isCreate || name.includes('create_')) {
       return isTS ?
-        `import SchemaBuilder from 'ilana-orm/database/schema-builder';
+        `import type { SchemaBuilder } from 'ilana-orm';
 
 export default class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -364,7 +372,7 @@ export default class ${className} {
   }
 }
 ` :
-        `const SchemaBuilder = require('ilana-orm/database/schema-builder');
+        `const { SchemaBuilder } = require('ilana-orm');
 
 class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -385,7 +393,7 @@ module.exports = ${className};
 `;
     } else if (tableName) {
       return isTS ?
-        `import SchemaBuilder from 'ilana-orm/database/schema-builder';
+        `import type { SchemaBuilder } from 'ilana-orm';
 
 export default class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -405,7 +413,7 @@ export default class ${className} {
   }
 }
 ` :
-        `const SchemaBuilder = require('ilana-orm/database/schema-builder');
+        `const { SchemaBuilder } = require('ilana-orm');
 
 class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -430,7 +438,7 @@ module.exports = ${className};
     }
 
     return isTS ?
-      `import SchemaBuilder from 'ilana-orm/database/schema-builder';
+      `import type { SchemaBuilder } from 'ilana-orm';
 
 export default class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection
@@ -444,7 +452,7 @@ export default class ${className} {
   }
 }
 ` :
-      `const SchemaBuilder = require('ilana-orm/database/schema-builder');
+      `const { SchemaBuilder } = require('ilana-orm');
 
 class ${className} {
   // connection = 'mysql'; // Uncomment to use specific connection

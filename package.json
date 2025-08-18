@@ -1,6 +1,6 @@
 {
   "name": "ilana-orm",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "A fully-featured, Eloquent-style ORM for Node.js with TypeScript support",
   "main": "index.js",
   "types": "index.d.ts",
@@ -24,6 +24,11 @@
       "import": "./orm/Collection.mjs",
       "require": "./orm/Collection.js",
       "types": "./orm/Collection.d.ts"
+    },
+    "./orm/CustomCasts": {
+      "import": "./orm/CustomCasts.mjs",
+      "require": "./orm/CustomCasts.js",
+      "types": "./orm/CustomCasts.d.ts"
     },
     "./database/connection": {
       "import": "./database/connection.mjs",
