@@ -36,12 +36,15 @@
       "types": "./database/connection.d.ts"
     },
     "./database/schema-builder": {
+      "import": "./database/schema-builder.mjs",
       "require": "./database/schema-builder.js"
     },
     "./orm/Seeder": {
+      "import": "./orm/Seeder.mjs",
       "require": "./orm/Seeder.js"
     },
     "./orm/Factory": {
+      "import": "./orm/Factory.mjs",
       "require": "./orm/Factory.js"
     },
     "./orm/ModelRegistry": {
@@ -58,6 +61,7 @@
       "require": "./orm/MigrationRunner.js"
     },
     "./database/DB": {
+      "import": "./database/DB.mjs",
       "require": "./database/DB.js"
     }
   },
