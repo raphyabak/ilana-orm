@@ -34,6 +34,31 @@
       "import": "./database/connection.mjs",
       "require": "./database/connection.js",
       "types": "./database/connection.d.ts"
+    },
+    "./database/schema-builder": {
+      "require": "./database/schema-builder.js"
+    },
+    "./orm/Seeder": {
+      "require": "./orm/Seeder.js"
+    },
+    "./orm/Factory": {
+      "require": "./orm/Factory.js"
+    },
+    "./orm/ModelRegistry": {
+      "import": "./orm/ModelRegistry.mjs",
+      "require": "./orm/ModelRegistry.js",
+      "types": "./orm/ModelRegistry.d.ts"
+    },
+    "./orm/Relation": {
+      "import": "./orm/Relation.mjs",
+      "require": "./orm/Relation.js",
+      "types": "./orm/Relation.d.ts"
+    },
+    "./orm/MigrationRunner": {
+      "require": "./orm/MigrationRunner.js"
+    },
+    "./database/DB": {
+      "require": "./database/DB.js"
     }
   },
   "bin": {
