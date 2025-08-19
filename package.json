@@ -1,6 +1,6 @@
 {
   "name": "ilana-orm",
-  "version": "1.0.10",
+  "version": "1.0.9",
   "description": "A fully-featured, Eloquent-style ORM for Node.js with TypeScript support",
   "main": "index.js",
   "types": "index.d.ts",

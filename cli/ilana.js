@@ -33,7 +33,7 @@ const defaultConfig = {
 async function loadConfig() {
   const configPathJs = path.join(process.cwd(), 'ilana.config.js');
   const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
-  
+
   // Try .mjs first (ES modules)
   if (fs.existsSync(configPathMjs)) {
     try {
@@ -45,7 +45,7 @@ async function loadConfig() {
       process.exit(1);
     }
   }
-  
+
   // Try .js (CommonJS)
   if (fs.existsSync(configPathJs)) {
     delete require.cache[configPathJs];
@@ -61,7 +61,7 @@ async function loadConfig() {
       }
     }
   }
-  
+
   // No config file found
   console.error('No ilana.config.js or ilana.config.mjs found. Run "npx ilana setup" first.');
   process.exit(1);
@@ -260,7 +260,7 @@ function generateModel(name, options = {}) {
 
 function getModelTemplate(className, tableName) {
   const isESModule = isESModuleProject();
-  
+
   if (isTypeScriptProject()) {
     return `import Model from 'ilana-orm/orm/Model';
 // import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
@@ -305,7 +305,7 @@ export default class ${className} extends Model {
 }
 `;
   }
-  
+
   if (isESModule) {
     return `import Model from 'ilana-orm/orm/Model';
 // import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
@@ -352,7 +352,7 @@ class ${className} extends Model {
 export default ${className};
 `;
   }
-  
+
   return `const Model = require('ilana-orm/orm/Model');
 // const { MoneyCast, EncryptedCast } = require('ilana-orm/orm/CustomCasts');
 
@@ -401,7 +401,7 @@ module.exports = ${className};
 
 function getPivotModelTemplate(className, tableName) {
   const isESModule = isESModuleProject();
-  
+
   if (isTypeScriptProject()) {
     return `import Model from 'ilana-orm/orm/Model';
 
@@ -415,7 +415,7 @@ export default class ${className} extends Model {
 }
 `;
   }
-  
+
   if (isESModule) {
     return `import Model from 'ilana-orm/orm/Model';
 
@@ -431,7 +431,7 @@ class ${className} extends Model {
 export default ${className};
 `;
   }
-  
+
   return `const Model = require('ilana-orm/orm/Model');
 
 class ${className} extends Model {
@@ -531,7 +531,206 @@ module.exports = ${className}Seeder;
   console.log(`Created seeder: seeds/${fileName}`);
 }
 
-// CLI Commands
+function getObserverTemplate(className, modelName) {
+  const isESModule = isESModuleProject();
+  
+  if (isTypeScriptProject()) {
+    const importStatement = modelName ? `import ${modelName} from '../models/${modelName}.js';\n\n` : '';
+    const modelType = modelName || 'any';
+    
+    return `${importStatement}export default class ${className}Observer {
+  async creating(model: ${modelType}): Promise<void> {
+    // Logic before creating model
+  }
+
+  async created(model: ${modelType}): Promise<void> {
+    // Logic after creating model
+  }
+
+  async updating(model: ${modelType}): Promise<void> {
+    // Logic before updating model
+  }
+
+  async updated(model: ${modelType}): Promise<void> {
+    // Logic after updating model
+  }
+
+  async saving(model: ${modelType}): Promise<void> {
+    // Logic before saving (create or update)
+  }
+
+  async saved(model: ${modelType}): Promise<void> {
+    // Logic after saving (create or update)
+  }
+
+  async deleting(model: ${modelType}): Promise<void> {
+    // Logic before deleting model
+  }
+
+  async deleted(model: ${modelType}): Promise<void> {
+    // Logic after deleting model
+  }
+
+  async restoring(model: ${modelType}): Promise<void> {
+    // Logic before restoring soft-deleted model
+  }
+
+  async restored(model: ${modelType}): Promise<void> {
+    // Logic after restoring soft-deleted model
+  }
+}
+`;
+  }
+  
+  if (isESModule) {
+    const importStatement = modelName ? `import ${modelName} from '../models/${modelName}.js';\n\n` : '';
+    
+    return `${importStatement}class ${className}Observer {
+  async creating(model) {
+    // Logic before creating model
+  }
+
+  async created(model) {
+    // Logic after creating model
+  }
+
+  async updating(model) {
+    // Logic before updating model
+  }
+
+  async updated(model) {
+    // Logic after updating model
+  }
+
+  async saving(model) {
+    // Logic before saving (create or update)
+  }
+
+  async saved(model) {
+    // Logic after saving (create or update)
+  }
+
+  async deleting(model) {
+    // Logic before deleting model
+  }
+
+  async deleted(model) {
+    // Logic after deleting model
+  }
+
+  async restoring(model) {
+    // Logic before restoring soft-deleted model
+  }
+
+  async restored(model) {
+    // Logic after restoring soft-deleted model
+  }
+}
+
+export default ${className}Observer;
+`;
+  }
+  
+  const importStatement = modelName ? `const ${modelName} = require('../models/${modelName}');\n\n` : '';
+  
+  return `${importStatement}class ${className}Observer {
+  async creating(model) {
+    // Logic before creating model
+  }
+
+  async created(model) {
+    // Logic after creating model
+  }
+
+  async updating(model) {
+    // Logic before updating model
+  }
+
+  async updated(model) {
+    // Logic after updating model
+  }
+
+  async saving(model) {
+    // Logic before saving (create or update)
+  }
+
+  async saved(model) {
+    // Logic after saving (create or update)
+  }
+
+  async deleting(model) {
+    // Logic before deleting model
+  }
+
+  async deleted(model) {
+    // Logic after deleting model
+  }
+
+  async restoring(model) {
+    // Logic before restoring soft-deleted model
+  }
+
+  async restored(model) {
+    // Logic after restoring soft-deleted model
+  }
+}
+
+module.exports = ${className}Observer;
+`;
+}
+
+function getCastTemplate(className) {
+  const isESModule = isESModuleProject();
+  
+  if (isTypeScriptProject()) {
+    return `export default class ${className}Cast {
+  get(value: any): any {
+    // Transform value when retrieving from database
+    return value;
+  }
+
+  set(value: any): any {
+    // Transform value when storing to database
+    return value;
+  }
+}
+`;
+  }
+  
+  if (isESModule) {
+    return `class ${className}Cast {
+  get(value) {
+    // Transform value when retrieving from database
+    return value;
+  }
+
+  set(value) {
+    // Transform value when storing to database
+    return value;
+  }
+}
+
+export default ${className}Cast;
+`;
+  }
+  
+  return `class ${className}Cast {
+  get(value) {
+    // Transform value when retrieving from database
+    return value;
+  }
+
+  set(value) {
+    // Transform value when storing to database
+    return value;
+  }
+}
+
+module.exports = ${className}Cast;
+`;
+}
+
+
 const commands = {
   async setup() {
     console.log('Setting up Ilana ORM...');
@@ -548,7 +747,7 @@ const commands = {
     // Create config file if it doesn't exist
     const isESModule = isESModuleProject();
     const configPath = isESModule ? 'ilana.config.mjs' : 'ilana.config.js';
-    
+
     if (!fs.existsSync(configPath)) {
       const configTemplate = isESModule ? getESModuleConfigTemplate() : getCommonJSConfigTemplate();
       fs.writeFileSync(configPath, configTemplate);
@@ -699,6 +898,268 @@ DB_TIMEZONE=UTC
     generateModel(name, options);
   },
 
+  async migrate(...args) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+
+    let connection;
+    let onlyFile;
+    let toFile;
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--connection' && args[i + 1]) {
+        connection = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--connection=')) {
+        connection = arg.split('=')[1];
+      } else if (arg === '--only' && args[i + 1]) {
+        onlyFile = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--only=')) {
+        onlyFile = arg.split('=')[1];
+      } else if (arg === '--to' && args[i + 1]) {
+        toFile = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--to=')) {
+        toFile = arg.split('=')[1];
+      } else if (!arg.startsWith('--')) {
+        connection = arg;
+      }
+    }
+
+    await runner.migrate(connection, onlyFile, toFile);
+    process.exit(0);
+  },
+
+  async 'migrate:fresh'(...args) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+
+    let connection;
+    let withSeed = false;
+
+    for (const arg of args) {
+      if (arg === '--seed') {
+        withSeed = true;
+      } else if (arg.startsWith('--connection=')) {
+        connection = arg.split('=')[1];
+      } else if (!arg.startsWith('--')) {
+        connection = arg;
+      }
+    }
+
+    await runner.fresh(connection);
+
+    if (withSeed) {
+      await commands.seed();
+    }
+
+    process.exit(0);
+  },
+
+  async 'migrate:list'(connection) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+    await runner.list(connection);
+    process.exit(0);
+  },
+
+  async 'migrate:unlock'(connection) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+    await runner.unlock(connection);
+    process.exit(0);
+  },
+
+  async 'migrate:rollback'(...args) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+
+    let steps = 1;
+    let connection;
+    let toFile;
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--step' && args[i + 1]) {
+        steps = parseInt(args[i + 1]);
+        i++;
+      } else if (arg.startsWith('--step=')) {
+        steps = parseInt(arg.split('=')[1]);
+      } else if (arg === '--connection' && args[i + 1]) {
+        connection = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--connection=')) {
+        connection = arg.split('=')[1];
+      } else if (arg === '--to' && args[i + 1]) {
+        toFile = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--to=')) {
+        toFile = arg.split('=')[1];
+      } else if (!isNaN(parseInt(arg))) {
+        steps = parseInt(arg);
+      } else if (!arg.startsWith('--')) {
+        connection = arg;
+      }
+    }
+
+    await runner.rollback(steps, connection, toFile);
+    process.exit(0);
+  },
+
+  async 'migrate:reset'(connection) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+    await runner.reset(connection);
+    process.exit(0);
+  },
+
+  async 'migrate:refresh'(connection) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+    await runner.refresh(connection);
+    process.exit(0);
+  },
+
+  async 'migrate:status'(connection) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+    await runner.status(connection);
+    process.exit(0);
+  },
+
+  async seed(...args) {
+    await initializeDatabase();
+
+    let seederName;
+    let connection;
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--class' && args[i + 1]) {
+        seederName = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--class=')) {
+        seederName = arg.split('=')[1];
+      } else if (arg === '--connection' && args[i + 1]) {
+        connection = args[i + 1];
+        i++;
+      } else if (arg.startsWith('--connection=')) {
+        connection = arg.split('=')[1];
+      } else if (!arg.startsWith('--')) {
+        if (!seederName) seederName = arg;
+        else connection = arg;
+      }
+    }
+
+    const seedsPath = path.join(process.cwd(), 'database/seeds');
+    if (!fs.existsSync(seedsPath)) {
+      console.log('No seeds directory found');
+      process.exit(0);
+    }
+
+    const seedFiles = fs.readdirSync(seedsPath)
+      .filter(file => file.endsWith('.ts') || file.endsWith('.js'))
+      .sort();
+
+    if (seedFiles.length === 0) {
+      console.log('No seed files found');
+      process.exit(0);
+    }
+
+    const filesToRun = seederName
+      ? seedFiles.filter(file => file.includes(seederName))
+      : seedFiles;
+
+    console.log(`Running ${filesToRun.length} seeders...`);
+
+    for (const file of filesToRun) {
+      console.log(`Seeding: ${file}`);
+      const filepath = path.join(seedsPath, file);
+      delete require.cache[filepath];
+      const seederModule = require(filepath);
+      const SeederClass = seederModule.default || seederModule;
+      const seeder = new SeederClass();
+
+      if (connection) {
+        seeder.connection = connection;
+      }
+
+      if (typeof seeder.run === 'function') {
+        await seeder.run();
+      }
+
+      console.log(`Seeded: ${file}`);
+    }
+
+    console.log('Seeding completed');
+    process.exit(0);
+  },
+
+  async 'db:seed'(seederName) {
+    return commands.seed(seederName);
+  },
+
+  async 'db:wipe'(connection) {
+    await initializeDatabase();
+    const runner = new MigrationRunner();
+    await runner.wipe(connection);
+    process.exit(0);
+  },
+
+  async 'make:observer'(name, ...flags) {
+    if (!name) {
+      console.error('Observer name is required');
+      console.log('Usage: ilana make:observer <ObserverName> [--model=ModelName]');
+      process.exit(1);
+    }
+
+    let modelName = '';
+
+    for (const flag of flags) {
+      if (flag.startsWith('--model=')) {
+        modelName = flag.split('=')[1];
+      }
+    }
+
+    const className = toPascalCase(name.replace('Observer', ''));
+    const fileName = `${className}Observer${getFileExtension()}`;
+    const filePath = path.join(process.cwd(), 'observers', fileName);
+
+    if (!fs.existsSync(path.dirname(filePath))) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    }
+
+    const template = getObserverTemplate(className, modelName);
+    fs.writeFileSync(filePath, template);
+    console.log(`Created observer: observers/${fileName}`);
+
+    if (modelName) {
+      console.log(`Observer configured for model: ${modelName}`);
+    }
+  },
+
+  async 'make:cast'(name) {
+    if (!name) {
+      console.error('Cast name is required');
+      console.log('Usage: ilana make:cast <CastName>');
+      process.exit(1);
+    }
+
+    const className = toPascalCase(name.replace('Cast', ''));
+    const fileName = `${className}Cast${getFileExtension()}`;
+    const filePath = path.join(process.cwd(), 'casts', fileName);
+
+    if (!fs.existsSync(path.dirname(filePath))) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    }
+
+    const template = getCastTemplate(className);
+    fs.writeFileSync(filePath, template);
+    console.log(`Created cast: casts/${fileName}`);
+  },
+
   help() {
     console.log(`
 Ilana ORM CLI
@@ -715,6 +1176,24 @@ Available commands:
     -mfs                     Generate model + migration + factory + seeder
   
   make:migration <name>        Create a new migration file
+  make:factory <name>          Create a new factory
+  make:seeder <name>           Create a new seeder
+  make:observer <name>         Create a new observer
+  make:cast <name>             Create a new cast
+  
+  migrate [connection]         Run all pending migrations
+  migrate:rollback [steps]     Rollback the last batch of migrations
+  migrate:reset [connection]   Rollback all migrations
+  migrate:fresh [connection]   Drop all tables and re-run migrations
+  migrate:refresh [connection] Reset and re-run all migrations
+  migrate:status [connection]  Show migration status
+  migrate:list [connection]    List completed migrations
+  migrate:unlock [connection]  Unlock migrations (if stuck)
+  
+  seed [name]                  Run database seeders
+  db:seed [name]               Alias for seed command
+  db:wipe [connection]         Drop all tables
+  
   help                         Show this help message
 
 Examples:
@@ -725,6 +1204,14 @@ Examples:
   ilana make:model Permission --all
   ilana make:model UserPost --pivot
   ilana make:migration create_users_table
+  ilana make:observer UserObserver --model=User
+  ilana make:cast MoneyCast
+  ilana migrate
+  ilana migrate mysql
+  ilana migrate:rollback 2 postgres
+  ilana migrate:fresh --seed
+  ilana seed UserSeeder
+  ilana db:wipe
 `);
   }
 };

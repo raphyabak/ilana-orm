@@ -53,6 +53,27 @@ class MigrationRunner {
         table.timestamp('executed_at').defaultTo(Database.getInstance().fn.now());
       });
     }
+
+    // Ensure migration lock table exists
+    const lockTableName = `${this.tableName}_lock`;
+    const hasLockTable = await schema.hasTable(lockTableName);
+
+    if (!hasLockTable) {
+      await schema.createTable(lockTableName, (table) => {
+        table.increments('id');
+        table.boolean('is_locked').defaultTo(false);
+        table.timestamp('locked_at').nullable();
+        table.string('locked_by').nullable();
+        table.timestamp('created_at').defaultTo(Database.getInstance().fn.now());
+      });
+
+      // Insert initial lock record
+      await Database.table(lockTableName).insert({
+        is_locked: false,
+        locked_at: null,
+        locked_by: null
+      });
+    }
   }
 
   async getPendingMigrations() {
@@ -77,94 +98,106 @@ class MigrationRunner {
   }
 
   async migrate(connection, onlyFile, toFile) {
-    let pendingMigrations = await this.getPendingMigrations();
+    await this.acquireLock(connection);
 
-    if (onlyFile) {
-      pendingMigrations = pendingMigrations.filter(m => m.includes(onlyFile));
-    }
+    try {
+      let pendingMigrations = await this.getPendingMigrations();
 
-    if (toFile) {
-      const toIndex = pendingMigrations.findIndex(m => m.includes(toFile));
-      if (toIndex >= 0) {
-        pendingMigrations = pendingMigrations.slice(0, toIndex + 1);
+      if (onlyFile) {
+        pendingMigrations = pendingMigrations.filter(m => m.includes(onlyFile));
       }
+
+      if (toFile) {
+        const toIndex = pendingMigrations.findIndex(m => m.includes(toFile));
+        if (toIndex >= 0) {
+          pendingMigrations = pendingMigrations.slice(0, toIndex + 1);
+        }
+      }
+
+      if (pendingMigrations.length === 0) {
+        console.log('Nothing to migrate.');
+        return;
+      }
+
+      const batch = await this.getNextBatchNumber();
+      const schema = new SchemaBuilder(connection);
+
+      console.log(`Running ${pendingMigrations.length} migrations...`);
+
+      for (const migrationFile of pendingMigrations) {
+        console.log(`Migrating: ${migrationFile}`);
+
+        const migration = await this.loadMigration(migrationFile);
+        const migrationConnection = migration.connection || connection;
+        const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
+
+        await migration.up(migrationSchema);
+
+        await Database.table(this.tableName, migrationConnection).insert({
+          migration: migrationFile,
+          batch,
+          executed_at: new Date()
+        });
+
+        console.log(`Migrated: ${migrationFile}`);
+      }
+
+      console.log('Migration completed.');
+    } finally {
+      await this.releaseLock(connection);
     }
-
-    if (pendingMigrations.length === 0) {
-      console.log('Nothing to migrate.');
-      return;
-    }
-
-    const batch = await this.getNextBatchNumber();
-    const schema = new SchemaBuilder(connection);
-
-    console.log(`Running ${pendingMigrations.length} migrations...`);
-
-    for (const migrationFile of pendingMigrations) {
-      console.log(`Migrating: ${migrationFile}`);
-
-      const migration = await this.loadMigration(migrationFile);
-      const migrationConnection = migration.connection || connection;
-      const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
-
-      await migration.up(migrationSchema);
-
-      await Database.table(this.tableName, migrationConnection).insert({
-        migration: migrationFile,
-        batch,
-        executed_at: new Date()
-      });
-
-      console.log(`Migrated: ${migrationFile}`);
-    }
-
-    console.log('Migration completed.');
   }
 
   async rollback(steps = 1, connection, toFile) {
-    const executedMigrations = await Database.table(this.tableName, connection)
-      .select('*')
-      .orderBy('batch', 'desc')
-      .orderBy('migration', 'desc');
+    await this.acquireLock(connection);
 
-    if (executedMigrations.length === 0) {
-      console.log('Nothing to rollback.');
-      return;
-    }
+    try {
+      const executedMigrations = await Database.table(this.tableName, connection)
+        .select('*')
+        .orderBy('batch', 'desc')
+        .orderBy('migration', 'desc');
 
-    let migrationsToRollback = executedMigrations;
-
-    if (toFile) {
-      const toIndex = executedMigrations.findIndex(m => m.migration.includes(toFile));
-      if (toIndex >= 0) {
-        migrationsToRollback = executedMigrations.slice(0, toIndex + 1);
+      if (executedMigrations.length === 0) {
+        console.log('Nothing to rollback.');
+        return;
       }
-    } else {
-      const batches = [...new Set(executedMigrations.map(m => m.batch))].slice(0, steps);
-      migrationsToRollback = executedMigrations.filter(m => batches.includes(m.batch));
+
+      let migrationsToRollback = executedMigrations;
+
+      if (toFile) {
+        const toIndex = executedMigrations.findIndex(m => m.migration.includes(toFile));
+        if (toIndex >= 0) {
+          migrationsToRollback = executedMigrations.slice(0, toIndex + 1);
+        }
+      } else {
+        const batches = [...new Set(executedMigrations.map(m => m.batch))].slice(0, steps);
+        migrationsToRollback = executedMigrations.filter(m => batches.includes(m.batch));
+      }
+
+      const schema = new SchemaBuilder(connection);
+
+      console.log(`Rolling back ${migrationsToRollback.length} migrations...`);
+
+      for (const migrationRecord of migrationsToRollback) {
+        console.log(`Rolling back: ${migrationRecord.migration}`);
+
+        const migration = await this.loadMigration(migrationRecord.migration);
+        const migrationConnection = migration.connection || connection;
+        const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
+
+        await migration.down(migrationSchema);
+
+        await Database.table(this.tableName, migrationConnection)
+          .where('migration', migrationRecord.migration)
+          .delete();
+
+        console.log(`Rolled back: ${migrationRecord.migration}`);
+      }
+
+      console.log('Rollback completed.');
+    } finally {
+      await this.releaseLock(connection);
     }
-
-    const schema = new SchemaBuilder(connection);
-
-    console.log(`Rolling back ${migrationsToRollback.length} migrations...`);
-
-    for (const migrationRecord of migrationsToRollback) {
-      console.log(`Rolling back: ${migrationRecord.migration}`);
-
-      const migration = await this.loadMigration(migrationRecord.migration);
-      const migrationConnection = migration.connection || connection;
-      const migrationSchema = migrationConnection ? new SchemaBuilder(migrationConnection) : schema;
-
-      await migration.down(migrationSchema);
-
-      await Database.table(this.tableName, migrationConnection)
-        .where('migration', migrationRecord.migration)
-        .delete();
-
-      console.log(`Rolled back: ${migrationRecord.migration}`);
-    }
-
-    console.log('Rollback completed.');
   }
 
   async reset(connection) {
@@ -220,8 +253,37 @@ class MigrationRunner {
   }
 
   async unlock(connection) {
-    // In a real implementation, this would unlock migration locks
-    console.log('Migration locks cleared.');
+    await this.ensureMigrationsTable();
+    const lockTableName = `${this.tableName}_lock`;
+
+    try {
+      const lockRecord = await Database.table(lockTableName, connection).first();
+      
+      if (!lockRecord) {
+        console.log('No migration lock found.');
+        return;
+      }
+
+      if (!lockRecord.is_locked) {
+        console.log('Migrations are not locked.');
+        return;
+      }
+
+      await Database.table(lockTableName, connection)
+        .where('id', lockRecord.id)
+        .update({
+          is_locked: false,
+          locked_at: null,
+          locked_by: null
+        });
+
+      console.log('Migration lock cleared successfully.');
+      console.log(`Previous lock was held by: ${lockRecord.locked_by || 'unknown'}`);
+      console.log(`Lock was acquired at: ${lockRecord.locked_at || 'unknown'}`);
+    } catch (error) {
+      console.error('Error clearing migration lock:', error.message);
+      throw error;
+    }
   }
 
   async wipe(connection) {
@@ -484,6 +546,49 @@ module.exports = ${className};
     // Extract table name from migration name
     const match = name.match(/create_(.+)_table/);
     return match ? match[1] : 'table_name';
+  }
+
+  async acquireLock(connection) {
+    await this.ensureMigrationsTable();
+    const lockTableName = `${this.tableName}_lock`;
+    const lockHolder = `${process.env.USER || process.env.USERNAME || 'unknown'}@${require('os').hostname()}`;
+
+    const lockRecord = await Database.table(lockTableName, connection).first();
+    
+    if (lockRecord && lockRecord.is_locked) {
+      throw new Error(
+        `Migration is locked by ${lockRecord.locked_by} at ${lockRecord.locked_at}. ` +
+        'Use "ilana migrate:unlock" to clear the lock if no migration is running.'
+      );
+    }
+
+    await Database.table(lockTableName, connection)
+      .where('id', lockRecord.id)
+      .update({
+        is_locked: true,
+        locked_at: new Date(),
+        locked_by: lockHolder
+      });
+  }
+
+  async releaseLock(connection) {
+    const lockTableName = `${this.tableName}_lock`;
+    
+    try {
+      const lockRecord = await Database.table(lockTableName, connection).first();
+      
+      if (lockRecord) {
+        await Database.table(lockTableName, connection)
+          .where('id', lockRecord.id)
+          .update({
+            is_locked: false,
+            locked_at: null,
+            locked_by: null
+          });
+      }
+    } catch (error) {
+      console.warn('Warning: Could not release migration lock:', error.message);
+    }
   }
 }
 
