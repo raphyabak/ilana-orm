@@ -90,6 +90,17 @@ function isESModuleProject() {
   return false;
 }
 
+function getProjectStructure() {
+  const hasSrc = fs.existsSync(path.join(process.cwd(), 'src'));
+  return {
+    hasSrc,
+    modelsDir: hasSrc ? 'src/models' : 'models',
+    databaseDir: hasSrc ? 'src/database' : 'database',
+    observersDir: hasSrc ? 'src/observers' : 'observers',
+    castsDir: hasSrc ? 'src/casts' : 'casts'
+  };
+}
+
 function getFileExtension() {
   return isTypeScriptProject() ? '.ts' : '.js';
 }
@@ -109,8 +120,9 @@ function pluralize(str) {
 }
 
 function getESModuleConfigTemplate() {
+  const structure = getProjectStructure();
   return `import 'dotenv/config';
-import Database from 'ilana-orm/database/connection';
+import Database from 'ilana-orm/database/connection.js';
 
 const config = {
   default: process.env.DB_CONNECTION || 'mysql',
@@ -150,12 +162,12 @@ const config = {
   },
   
   migrations: {
-    directory: './database/migrations',
+    directory: './${structure.databaseDir}/migrations',
     tableName: 'migrations'
   },
   
   seeds: {
-    directory: './database/seeds'
+    directory: './${structure.databaseDir}/seeds'
   }
 };
 
@@ -167,6 +179,7 @@ export default config;
 }
 
 function getCommonJSConfigTemplate() {
+  const structure = getProjectStructure();
   return `require('dotenv').config();
 const Database = require('ilana-orm/database/connection');
 
@@ -208,12 +221,12 @@ const config = {
   },
   
   migrations: {
-    directory: './database/migrations',
+    directory: './${structure.databaseDir}/migrations',
     tableName: 'migrations'
   },
   
   seeds: {
-    directory: './database/seeds'
+    directory: './${structure.databaseDir}/seeds'
   }
 };
 
@@ -228,7 +241,8 @@ function generateModel(name, options = {}) {
   const className = toPascalCase(name);
   const tableName = pluralize(toSnakeCase(name));
   const fileName = `${className}${getFileExtension()}`;
-  const filePath = path.join(process.cwd(), 'models', fileName);
+  const structure = getProjectStructure();
+  const filePath = path.join(process.cwd(), structure.modelsDir, fileName);
 
   if (fs.existsSync(filePath)) {
     console.error(`Model ${className} already exists at models/${fileName}`);
@@ -241,7 +255,7 @@ function generateModel(name, options = {}) {
 
   const template = options.pivot ? getPivotModelTemplate(className, tableName) : getModelTemplate(className, tableName);
   fs.writeFileSync(filePath, template);
-  console.log(`Created model: models/${fileName}`);
+  console.log(`Created model: ${structure.modelsDir}/${fileName}`);
 
   if (options.migration || options.all) {
     const migrationName = `create_${tableName}_table`;
@@ -449,15 +463,17 @@ module.exports = ${className};
 
 function generateFactory(className) {
   const fileName = `${className}Factory${getFileExtension()}`;
-  const filePath = path.join(process.cwd(), 'database/factories', fileName);
+  const structure = getProjectStructure();
+  const filePath = path.join(process.cwd(), structure.databaseDir, 'factories', fileName);
 
   if (!fs.existsSync(path.dirname(filePath))) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
 
+  const modelPath = structure.hasSrc ? `../models/${className}.js` : `../../models/${className}.js`;
   const template = isTypeScriptProject() ?
     `import { defineFactory } from 'ilana-orm/orm/Factory.js';
-import ${className} from '../../models/${className}.js';
+import ${className} from '${modelPath}';
 
 export default defineFactory(${className}, (faker) => ({
   // Define your factory attributes here
@@ -469,7 +485,7 @@ export default defineFactory(${className}, (faker) => ({
 }));
 ` :
     `const { defineFactory } = require('ilana-orm/orm/Factory');
-const ${className} = require('../../models/${className}');
+const ${className} = require('${modelPath.replace('.js', '')}');
 
 module.exports = defineFactory(${className}, (faker) => ({
   // Define your factory attributes here
@@ -482,20 +498,22 @@ module.exports = defineFactory(${className}, (faker) => ({
 `;
 
   fs.writeFileSync(filePath, template);
-  console.log(`Created factory: factories/${fileName}`);
+  console.log(`Created factory: ${structure.databaseDir}/factories/${fileName}`);
 }
 
 function generateSeeder(className) {
   const fileName = `${className}Seeder${getFileExtension()}`;
-  const filePath = path.join(process.cwd(), 'database/seeds', fileName);
+  const structure = getProjectStructure();
+  const filePath = path.join(process.cwd(), structure.databaseDir, 'seeds', fileName);
 
   if (!fs.existsSync(path.dirname(filePath))) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
   }
 
+  const modelPath = structure.hasSrc ? `../models/${className}.js` : `../../models/${className}.js`;
   const template = isTypeScriptProject() ?
     `import Seeder from 'ilana-orm/orm/Seeder.js';
-import ${className} from '../../models/${className}.js';
+import ${className} from '${modelPath}';
 import '../factories/${className}Factory.js';
 
 export default class ${className}Seeder extends Seeder {
@@ -510,7 +528,7 @@ export default class ${className}Seeder extends Seeder {
 }
 ` :
     `const Seeder = require('ilana-orm/orm/Seeder');
-const ${className} = require('../../models/${className}');
+const ${className} = require('${modelPath.replace('.js', '')}');
 require('../factories/${className}Factory');
 
 class ${className}Seeder extends Seeder {
@@ -528,16 +546,16 @@ module.exports = ${className}Seeder;
 `;
 
   fs.writeFileSync(filePath, template);
-  console.log(`Created seeder: seeds/${fileName}`);
+  console.log(`Created seeder: ${structure.databaseDir}/seeds/${fileName}`);
 }
 
 function getObserverTemplate(className, modelName) {
   const isESModule = isESModuleProject();
-  
+
   if (isTypeScriptProject()) {
     const importStatement = modelName ? `import ${modelName} from '../models/${modelName}.js';\n\n` : '';
     const modelType = modelName || 'any';
-    
+
     return `${importStatement}export default class ${className}Observer {
   async creating(model: ${modelType}): Promise<void> {
     // Logic before creating model
@@ -581,10 +599,10 @@ function getObserverTemplate(className, modelName) {
 }
 `;
   }
-  
+
   if (isESModule) {
     const importStatement = modelName ? `import ${modelName} from '../models/${modelName}.js';\n\n` : '';
-    
+
     return `${importStatement}class ${className}Observer {
   async creating(model) {
     // Logic before creating model
@@ -630,9 +648,9 @@ function getObserverTemplate(className, modelName) {
 export default ${className}Observer;
 `;
   }
-  
+
   const importStatement = modelName ? `const ${modelName} = require('../models/${modelName}');\n\n` : '';
-  
+
   return `${importStatement}class ${className}Observer {
   async creating(model) {
     // Logic before creating model
@@ -681,7 +699,7 @@ module.exports = ${className}Observer;
 
 function getCastTemplate(className) {
   const isESModule = isESModuleProject();
-  
+
   if (isTypeScriptProject()) {
     return `export default class ${className}Cast {
   get(value: any): any {
@@ -696,7 +714,7 @@ function getCastTemplate(className) {
 }
 `;
   }
-  
+
   if (isESModule) {
     return `class ${className}Cast {
   get(value) {
@@ -713,7 +731,7 @@ function getCastTemplate(className) {
 export default ${className}Cast;
 `;
   }
-  
+
   return `class ${className}Cast {
   get(value) {
     // Transform value when retrieving from database
@@ -736,7 +754,13 @@ const commands = {
     console.log('Setting up Ilana ORM...');
 
     // Create directories
-    const dirs = ['models', 'database/migrations', 'database/factories', 'database/seeds'];
+    const structure = getProjectStructure();
+    const dirs = [
+      structure.modelsDir,
+      `${structure.databaseDir}/migrations`,
+      `${structure.databaseDir}/factories`,
+      `${structure.databaseDir}/seeds`
+    ];
     for (const dir of dirs) {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -1053,7 +1077,8 @@ DB_TIMEZONE=UTC
       }
     }
 
-    const seedsPath = path.join(process.cwd(), 'database/seeds');
+    const structure = getProjectStructure();
+    const seedsPath = path.join(process.cwd(), structure.databaseDir, 'seeds');
     if (!fs.existsSync(seedsPath)) {
       console.log('No seeds directory found');
       process.exit(0);
@@ -1125,7 +1150,8 @@ DB_TIMEZONE=UTC
 
     const className = toPascalCase(name.replace('Observer', ''));
     const fileName = `${className}Observer${getFileExtension()}`;
-    const filePath = path.join(process.cwd(), 'observers', fileName);
+    const structure = getProjectStructure();
+    const filePath = path.join(process.cwd(), structure.observersDir, fileName);
 
     if (!fs.existsSync(path.dirname(filePath))) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1133,7 +1159,7 @@ DB_TIMEZONE=UTC
 
     const template = getObserverTemplate(className, modelName);
     fs.writeFileSync(filePath, template);
-    console.log(`Created observer: observers/${fileName}`);
+    console.log(`Created observer: ${structure.observersDir}/${fileName}`);
 
     if (modelName) {
       console.log(`Observer configured for model: ${modelName}`);
@@ -1149,7 +1175,8 @@ DB_TIMEZONE=UTC
 
     const className = toPascalCase(name.replace('Cast', ''));
     const fileName = `${className}Cast${getFileExtension()}`;
-    const filePath = path.join(process.cwd(), 'casts', fileName);
+    const structure = getProjectStructure();
+    const filePath = path.join(process.cwd(), structure.castsDir, fileName);
 
     if (!fs.existsSync(path.dirname(filePath))) {
       fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -1157,7 +1184,7 @@ DB_TIMEZONE=UTC
 
     const template = getCastTemplate(className);
     fs.writeFileSync(filePath, template);
-    console.log(`Created cast: casts/${fileName}`);
+    console.log(`Created cast: ${structure.castsDir}/${fileName}`);
   },
 
   help() {
