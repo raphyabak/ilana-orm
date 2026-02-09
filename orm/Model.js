@@ -290,20 +290,7 @@ class Model {
     if (cast === 'json' || cast === 'array') {
       try { return JSON.parse(val); } catch { return val; }
     }
-    if (cast === 'date' && val != null) {
-      const config = this._getConfig();
-      const timezone = this.constructor.timezone || config?.timezone || 'UTC';
-
-      try {
-        // Try moment-timezone first
-        const moment = require('moment-timezone');
-        // Parse the stored value as if it's in the configured timezone
-        return moment.tz(val, timezone).format('YYYY-MM-DD HH:mm:ss');
-      } catch (e) {
-        // Fallback: return the stored value as-is since it's already in the correct timezone
-        return val;
-      }
-    }
+    if (cast === 'date' && val != null) return val;
     return val;
   }
 
@@ -337,38 +324,29 @@ class Model {
   }
 
   _getCurrentTimestamp() {
+    const now = new Date();
     const config = this._getConfig();
     const timezone = this.constructor.timezone || config?.timezone || 'UTC';
-
+    
+    if (timezone === 'UTC') return now;
+    
     try {
-      // Try to use moment-timezone if available
-      const moment = require('moment-timezone');
-      return moment().tz(timezone).toDate();
-    } catch (e) {
-      try {
-        // Try to use date-fns-tz if available
-        const { zonedTimeToUtc } = require('date-fns-tz');
-        return zonedTimeToUtc(new Date(), timezone);
-      } catch (e2) {
-        // Fallback to simple but accurate method
-        const now = new Date();
-        if (timezone === 'UTC') return now;
-
-        // Use toLocaleString for accurate timezone conversion
-        const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const targetTime = new Date(utcTime + (this._getTimezoneOffset(timezone, now) * 60000));
-        return targetTime;
-      }
-    }
-  }
-
-  _getTimezoneOffset(timezone, date) {
-    try {
-      const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
-      const targetDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
-      return (targetDate.getTime() - utcDate.getTime()) / 60000;
-    } catch (e) {
-      return 0; // Default to UTC
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      const parts = Object.fromEntries(
+        formatter.formatToParts(now).map(p => [p.type, p.value])
+      );
+      return new Date(`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`);
+    } catch {
+      return now;
     }
   }
 

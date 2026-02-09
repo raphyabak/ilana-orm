@@ -104,17 +104,23 @@ A fully-featured, Eloquent-style ORM for Node.js with automatic TypeScript suppo
 ## Installation
 
 ```bash
-# npm
 npm install ilana-orm
-
-# yarn
-yarn add ilana-orm
-
-# pnpm
-pnpm add ilana-orm
 ```
 
-**All database drivers (PostgreSQL, MySQL, SQLite) and dotenv are included by default** - no additional installation required!
+### Database Drivers
+
+Install only the database driver you need:
+
+```bash
+# PostgreSQL
+npm install pg
+
+# MySQL
+npm install mysql2
+
+# SQLite
+npm install sqlite3
+```
 
 ## Quick Start
 
@@ -4770,6 +4776,32 @@ class CustomCast {
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## Security
+
+### Reporting Vulnerabilities
+
+If you discover a security vulnerability, please email raphyabak@gmail.com with:
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+
+We will respond within 48 hours.
+
+### Security Considerations
+
+**Database Drivers**: Database drivers (pg, mysql2, sqlite3) are optional dependencies. Install only what you need to reduce your security surface:
+```bash
+npm install pg          # PostgreSQL
+npm install mysql2      # MySQL
+npm install sqlite3     # SQLite
+```
+
+**SQL Injection Protection**: IlanaORM uses parameterized queries via Knex.js. Always use query builder methods instead of raw SQL.
+
+**Filesystem Access**: The CLI and migration tools require filesystem access. Review migration files before running.
+
+**Network Access**: Database drivers make network connections. Ensure proper firewall and connection security.
 
 ## License
 

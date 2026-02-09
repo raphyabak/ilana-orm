@@ -10,17 +10,28 @@ class Database {
     
     // Initialize all configured connections
     for (const [name, connConfig] of Object.entries(config.connections)) {
-      const connection = knex({
-        ...connConfig,
-        migrations: config.migrations || {
-          directory: './migrations',
-          tableName: 'migrations'
-        },
-        seeds: config.seeds || {
-          directory: './seeds'
+      try {
+        const connection = knex({
+          ...connConfig,
+          migrations: config.migrations || {
+            directory: './migrations',
+            tableName: 'migrations'
+          },
+          seeds: config.seeds || {
+            directory: './seeds'
+          }
+        });
+        this.connections.set(name, connection);
+      } catch (error) {
+        if (error.code === 'MODULE_NOT_FOUND' && error.message.includes(connConfig.client)) {
+          const driverMap = { pg: 'pg', mysql2: 'mysql2', sqlite3: 'sqlite3' };
+          const driver = driverMap[connConfig.client] || connConfig.client;
+          throw new Error(
+            `Database driver '${driver}' not installed. Install it with: npm install ${driver}`
+          );
         }
-      });
-      this.connections.set(name, connection);
+        throw error;
+      }
     }
     
     // Set default instance after all connections are created
