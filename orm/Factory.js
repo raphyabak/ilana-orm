@@ -7,14 +7,14 @@ class Factory {
     this.definition = definition;
     this.faker = faker;
     this.states = new Map();
-    this.afterCreating = [];
-    this.afterMaking = [];
-    this.beforeCreating = [];
-    this.beforeMaking = [];
+    this._afterCreatingCallbacks = [];
+    this._afterMakingCallbacks = [];
+    this._beforeCreatingCallbacks = [];
+    this._beforeMakingCallbacks = [];
     this.count = 1;
     this.currentStates = [];
     this.relationships = new Map();
-    this.sequence = 0;
+    this._sequenceCount = 0;
     this.sequences = new Map();
   }
 
@@ -28,22 +28,22 @@ class Factory {
   }
 
   afterCreating(callback) {
-    this.afterCreating.push(callback);
+    this._afterCreatingCallbacks.push(callback);
     return this;
   }
 
   afterMaking(callback) {
-    this.afterMaking.push(callback);
+    this._afterMakingCallbacks.push(callback);
     return this;
   }
 
   beforeCreating(callback) {
-    this.beforeCreating.push(callback);
+    this._beforeCreatingCallbacks.push(callback);
     return this;
   }
 
   beforeMaking(callback) {
-    this.beforeMaking.push(callback);
+    this._beforeMakingCallbacks.push(callback);
     return this;
   }
 
@@ -75,7 +75,7 @@ class Factory {
   }
 
   sequence() {
-    return ++this.sequence;
+    return ++this._sequenceCount;
   }
 
   // Enhanced sequence methods
@@ -92,7 +92,7 @@ class Factory {
       this.sequences?.set(key, 0);
     } else {
       this.sequences?.clear();
-      this.sequence = 0;
+      this._sequenceCount = 0;
     }
     return this;
   }
@@ -138,8 +138,6 @@ class Factory {
     
     if (typeof this.definition === 'function') {
       modelAttributes = this.definition(faker);
-    } else if (this.definition === undefined && typeof this.definition === 'function') {
-      modelAttributes = this.definition();
     } else {
       throw new Error('Factory must have a definition function');
     }
@@ -153,7 +151,7 @@ class Factory {
 
     modelAttributes = { ...modelAttributes, ...attributes };
 
-    for (const callback of this.beforeMaking) {
+    for (const callback of this._beforeMakingCallbacks) {
       modelAttributes = callback(modelAttributes) || modelAttributes;
     }
 
@@ -167,7 +165,7 @@ class Factory {
     model.fill(modelAttributes);
 
     // Run afterMaking callbacks
-    for (const callback of this.afterMaking) {
+    for (const callback of this._afterMakingCallbacks) {
       await callback(model);
     }
 
@@ -178,14 +176,14 @@ class Factory {
     const model = await this.makeOne(attributes);
     
     // Run beforeCreating callbacks
-    for (const callback of this.beforeCreating) {
+    for (const callback of this._beforeCreatingCallbacks) {
       await callback(model);
     }
-    
+
     await model.save();
 
     // Run afterCreating callbacks
-    for (const callback of this.afterCreating) {
+    for (const callback of this._afterCreatingCallbacks) {
       await callback(model);
     }
 
@@ -243,6 +241,8 @@ class Factory {
       const batchFactory = new Factory(this.model, this.definition);
       batchFactory.count = currentBatchSize;
       batchFactory.currentStates = [...this.currentStates];
+      batchFactory._afterCreatingCallbacks = [...this._afterCreatingCallbacks];
+      batchFactory._beforeCreatingCallbacks = [...this._beforeCreatingCallbacks];
       
       const batch = await batchFactory.create(attributes);
       results.push(...(Array.isArray(batch) ? batch : [batch]));
@@ -352,6 +352,8 @@ if (typeof Model !== 'undefined') {
       // Return a new instance to avoid state pollution
       const newFactory = new Factory(this, existingFactory.definition);
       newFactory.states = new Map(existingFactory.states);
+      newFactory._afterCreatingCallbacks = [...existingFactory._afterCreatingCallbacks];
+      newFactory._beforeCreatingCallbacks = [...existingFactory._beforeCreatingCallbacks];
       return newFactory;
     }
     throw new Error(`No factory defined for model: ${this.name}`);

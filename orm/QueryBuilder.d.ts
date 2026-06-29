@@ -56,27 +56,44 @@ export default class QueryBuilder {
   whereDate(column: string, operator: string, value: string): this;
   whereMonth(column: string, month: number): this;
   whereYear(column: string, year: number): this;
-  whereExists(callback: (query: QueryBuilder) => void): this;
+  whereNotBetween(column: string, range: [any, any]): this;
+  orWhereNull(column: string): this;
+  orWhereNotNull(column: string): this;
+  orWhereIn(column: string, values: any[]): this;
+  orWhereNotIn(column: string, values: any[]): this;
+  orWhereRaw(sql: string, bindings?: any[]): this;
+  whereDay(column: string, operatorOrValue: any, value?: any): this;
+  whereTime(column: string, operatorOrValue: any, value?: any): this;
   when<T>(condition: T, callback: (query: this, condition: T) => void, otherwise?: (query: this) => void): this;
+  unless<T>(condition: T, callback: (query: this) => void, otherwise?: (query: this, condition: T) => void): this;
 
   // Joins
   join(table: string, first: string, operator: string, second: string): this;
   leftJoin(table: string, first: string, operator: string, second: string): this;
   rightJoin(table: string, first: string, operator: string, second: string): this;
+  innerJoin(table: string, first: string, operator: string, second: string): this;
+  crossJoin(table: string): this;
 
   // Ordering and limits
   orderBy(column: string, direction?: 'asc' | 'desc'): this;
+  orderByRaw(sql: string): this;
   latest(column?: string): this;
   oldest(column?: string): this;
+  inRandomOrder(): this;
   limit(count: number): this;
   offset(count: number): this;
   take(count: number): this;
   skip(count: number): this;
+  from(table: string): this;
+  forPage(page: number, perPage?: number): this;
 
   // Grouping
   groupBy(...columns: string[]): this;
   having(column: string, operator: string, value: any): this;
   having(rawSql: string): this;
+  havingRaw(sql: string, bindings?: any[]): this;
+  whereExists(callback: (query: QueryBuilder) => void): this;
+  whereNotExists(callback: (query: QueryBuilder) => void): this;
 
   // Locking
   lockForUpdate(): this;
@@ -85,7 +102,8 @@ export default class QueryBuilder {
   noWait(): this;
 
   // Selection
-  select(...columns: string[]): this;
+  select(...columns: any[]): this;
+  addSelect(...columns: any[]): this;
   distinct(): this;
 
   // Raw queries
@@ -105,14 +123,18 @@ export default class QueryBuilder {
   withConstraints(relations: { [key: string]: (query: QueryBuilder) => void }): this;
   withCount(...relations: string[]): this;
   whereHas(relation: string, callback?: (query: QueryBuilder) => void): this;
+  doesntHave(relation: string): this;
+  whereDoesntHave(relation: string, callback?: (query: QueryBuilder) => void): this;
 
   // Execution methods
   get(): Promise<Collection<Model>>;
   first(): Promise<Model | null>;
+  firstOrFail(): Promise<Model>;
   find(id: any): Promise<Model | null>;
   findOrFail(id: any): Promise<Model>;
   pluck(column: string): Promise<any[]>;
   exists(): Promise<boolean>;
+  doesntExist(): Promise<boolean>;
 
   // Pagination
   paginate(page?: number, perPage?: number): Promise<PaginationResult<Model>>;

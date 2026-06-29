@@ -198,9 +198,38 @@ class BelongsToMany extends Relation {
 
   async sync(ids) {
     await this.detach();
-    for (const id of ids) {
-      await this.attach(id);
+    if (Array.isArray(ids)) {
+      for (const id of ids) {
+        await this.attach(id);
+      }
+    } else {
+      // Object form: { id: { pivot_col: val } }
+      for (const [id, attrs] of Object.entries(ids)) {
+        await this.attach(id, attrs);
+      }
     }
+  }
+
+  async toggle(ids) {
+    const current = await this.getResults();
+    const currentIds = current.map(m => String(m.getAttribute(this.relatedKey)));
+    const list = Array.isArray(ids) ? ids : [ids];
+    for (const id of list) {
+      if (currentIds.includes(String(id))) {
+        await this.detach(id);
+      } else {
+        await this.attach(id);
+      }
+    }
+  }
+
+  async updateExistingPivot(id, attributes) {
+    const data = { ...attributes };
+    if (this.pivotTimestamps) data.updated_at = new Date();
+    return new QueryBuilder(this.pivotTable)
+      .where(this.parentPivotKey, this.parent.getAttribute(this.parentKey))
+      .where(this.relatedPivotKey, id)
+      .update(data);
   }
 }
 
@@ -227,10 +256,16 @@ class HasManyThrough extends Relation {
   }
 
   async getResults() {
+    const relatedClass = this.getRelatedClass();
+    const throughClass = ModelRegistry.get(this.through) || null;
+    const throughTable = throughClass
+      ? throughClass.getTableName()
+      : (typeof this.through === 'string' ? this.through : this.through.getTableName());
+    const relatedTable = relatedClass.getTableName();
     return this.newQuery()
-      .select(`${this.related.getTableName()}.*`)
-      .join(this.through.getTableName(), `${this.related.getTableName()}.${this.secondLocalKey}`, `${this.through.getTableName()}.${this.secondKey}`)
-      .where(`${this.through.getTableName()}.${this.firstKey}`, this.parent.getAttribute(this.localKey))
+      .select(`${relatedTable}.*`)
+      .join(throughTable, `${relatedTable}.${this.secondKey}`, `${throughTable}.${this.secondLocalKey}`)
+      .where(`${throughTable}.${this.firstKey}`, this.parent.getAttribute(this.localKey))
       .get();
   }
 }
@@ -238,9 +273,12 @@ class HasManyThrough extends Relation {
 // Polymorphic Relations
 class MorphTo extends Relation {
   constructor(parent, morphType, morphId) {
-    super(parent, Model, morphId, 'id');
-    this.morphType = morphType;
-    this.morphId = morphId;
+    // Accept either a base name ('commentable') or full column names ('commentable_type', 'commentable_id')
+    const typeCol = morphType && !morphType.endsWith('_type') ? `${morphType}_type` : morphType;
+    const idCol = morphId || (morphType ? `${morphType.replace(/_type$/, '')}_id` : undefined);
+    super(parent, Model, idCol, 'id');
+    this.morphType = typeCol;
+    this.morphId = idCol;
   }
 
   addConstraints() {
@@ -269,9 +307,12 @@ class MorphTo extends Relation {
 
 class MorphMany extends Relation {
   constructor(parent, related, morphType, morphId, morphClass) {
-    super(parent, related, morphId, 'id');
-    this.morphType = morphType;
-    this.morphId = morphId;
+    // Accept either a base name ('commentable') or full column names ('commentable_type', 'commentable_id')
+    const typeCol = morphType && !morphType.endsWith('_type') ? `${morphType}_type` : morphType;
+    const idCol = morphId || (morphType ? `${morphType.replace(/_type$/, '')}_id` : undefined);
+    super(parent, related, idCol, 'id');
+    this.morphType = typeCol;
+    this.morphId = idCol;
     this.morphClass = morphClass;
   }
 
@@ -287,6 +328,27 @@ class MorphMany extends Relation {
   }
 }
 
+class MorphOne extends Relation {
+  constructor(parent, related, morphType, morphId, morphClass) {
+    // Accept either a base name ('imageable') or full column names ('imageable_type', 'imageable_id')
+    const typeCol = morphType && !morphType.endsWith('_type') ? `${morphType}_type` : morphType;
+    const idCol = morphId || (morphType ? `${morphType.replace(/_type$/, '')}_id` : undefined);
+    super(parent, related, idCol, 'id');
+    this.morphType = typeCol;
+    this.morphId = idCol;
+    this.morphClass = morphClass;
+  }
+
+  addConstraints() {}
+
+  async getResults() {
+    return this.newQuery()
+      .where(this.morphType, this.morphClass)
+      .where(this.morphId, this.parent.getAttribute(this.localKey))
+      .first();
+  }
+}
+
 module.exports = {
   Relation,
   HasOne,
@@ -295,5 +357,6 @@ module.exports = {
   BelongsToMany,
   HasManyThrough,
   MorphTo,
+  MorphOne,
   MorphMany
 };

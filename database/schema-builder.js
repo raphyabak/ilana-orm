@@ -104,10 +104,9 @@ class SchemaBuilder {
 
   checkPositive(column) {
     const client = this.knex.client.config.client;
-    if (client === 'pg') {
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD CONSTRAINT ${column}_positive CHECK (${column} > 0)`);
-    } else if (client === 'mysql2') {
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD CONSTRAINT ${column}_positive CHECK (${column} > 0)`);
+    if (client === 'pg' || client === 'mysql2') {
+      return this.knex.raw(`ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? > 0)`,
+        [this.currentTable, `${column}_positive`, column]);
     }
     return Promise.resolve();
   }
@@ -115,9 +114,11 @@ class SchemaBuilder {
   checkRegex(column, pattern) {
     const client = this.knex.client.config.client;
     if (client === 'pg') {
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD CONSTRAINT ${column}_regex CHECK (${column} ~ '${pattern}')`);
+      return this.knex.raw(`ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? ~ ?)`,
+        [this.currentTable, `${column}_regex`, column, pattern]);
     } else if (client === 'mysql2') {
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD CONSTRAINT ${column}_regex CHECK (${column} REGEXP '${pattern}')`);
+      return this.knex.raw(`ALTER TABLE ?? ADD CONSTRAINT ?? CHECK (?? REGEXP ?)`,
+        [this.currentTable, `${column}_regex`, column, pattern]);
     }
     return Promise.resolve();
   }
@@ -125,9 +126,11 @@ class SchemaBuilder {
   generatedAs(column, expression) {
     const client = this.knex.client.config.client;
     if (client === 'mysql2') {
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD ${column} VARCHAR(255) GENERATED ALWAYS AS (${expression}) STORED`);
+      return this.knex.raw(`ALTER TABLE ?? ADD ?? VARCHAR(255) GENERATED ALWAYS AS (${expression}) STORED`,
+        [this.currentTable, column]);
     } else if (client === 'pg') {
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD ${column} TEXT GENERATED ALWAYS AS (${expression}) STORED`);
+      return this.knex.raw(`ALTER TABLE ?? ADD ?? TEXT GENERATED ALWAYS AS (${expression}) STORED`,
+        [this.currentTable, column]);
     }
     return Promise.resolve();
   }
@@ -135,9 +138,9 @@ class SchemaBuilder {
   collate(tableName, collation) {
     const client = this.knex.client.config.client;
     if (client === 'mysql2') {
-      return this.knex.raw(`ALTER TABLE ${tableName} COLLATE ${collation}`);
+      return this.knex.raw(`ALTER TABLE ?? COLLATE ??`, [tableName, collation]);
     } else if (client === 'pg') {
-      return this.knex.raw(`ALTER TABLE ${tableName} ALTER COLUMN name TYPE TEXT COLLATE "${collation}"`);
+      return this.knex.raw(`ALTER TABLE ?? ALTER COLUMN name TYPE TEXT COLLATE ??`, [tableName, collation]);
     }
     return Promise.resolve();
   }
@@ -166,7 +169,9 @@ class SchemaBuilder {
   fulltext(columns, indexName) {
     if (this.knex.client.config.client === 'mysql2') {
       const name = indexName || `${columns.join('_')}_fulltext`;
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD FULLTEXT INDEX ${name} (${columns.join(', ')})`);
+      const colRefs = columns.map(() => '??').join(', ');
+      return this.knex.raw(`ALTER TABLE ?? ADD FULLTEXT INDEX ?? (${colRefs})`,
+        [this.currentTable, name, ...columns]);
     }
     return Promise.resolve();
   }
@@ -174,7 +179,8 @@ class SchemaBuilder {
   spatial(column, indexName) {
     if (this.knex.client.config.client === 'mysql2') {
       const name = indexName || `${column}_spatial`;
-      return this.knex.raw(`ALTER TABLE ${this.currentTable} ADD SPATIAL INDEX ${name} (${column})`);
+      return this.knex.raw(`ALTER TABLE ?? ADD SPATIAL INDEX ?? (??)`,
+        [this.currentTable, name, column]);
     }
     return Promise.resolve();
   }

@@ -22,6 +22,7 @@ export const {
   BelongsToMany,
   HasManyThrough,
   MorphTo,
+  MorphOne,
   MorphMany,
   MoneyCast,
   EncryptedCast,

@@ -1,5 +1,6 @@
 const Database = require('../database/connection');
 const Collection = require('./Collection');
+const ModelRegistry = require('./ModelRegistry');
 
 class QueryBuilder {
   constructor(tableName, modelClass, connectionName) {
@@ -75,12 +76,18 @@ class QueryBuilder {
     return this;
   }
 
+  static _validOp(op) {
+    const allowed = new Set(['=', '!=', '<>', '<', '>', '<=', '>=']);
+    if (!allowed.has(op)) throw new Error(`Invalid SQL operator: "${op}"`);
+    return op;
+  }
+
   whereJsonContains(column, value) {
     const client = this.query.client.config.client;
     if (client === 'pg') {
-      this.query.whereRaw(`${column} @> ?`, [JSON.stringify(value)]);
+      this.query.whereRaw(`?? @> ?`, [column, JSON.stringify(value)]);
     } else if (client === 'mysql2') {
-      this.query.whereRaw(`JSON_CONTAINS(${column}, ?)`, [JSON.stringify(value)]);
+      this.query.whereRaw(`JSON_CONTAINS(??, ?)`, [column, JSON.stringify(value)]);
     } else {
       this.query.whereJsonObject(column, value);
     }
@@ -88,11 +95,12 @@ class QueryBuilder {
   }
 
   whereJsonLength(column, operator, value) {
+    QueryBuilder._validOp(operator);
     const client = this.query.client.config.client;
     if (client === 'pg') {
-      this.query.whereRaw(`jsonb_array_length(${column}) ${operator} ?`, [value]);
+      this.query.whereRaw(`jsonb_array_length(??) ${operator} ?`, [column, value]);
     } else if (client === 'mysql2') {
-      this.query.whereRaw(`JSON_LENGTH(${column}) ${operator} ?`, [value]);
+      this.query.whereRaw(`JSON_LENGTH(??) ${operator} ?`, [column, value]);
     } else {
       this.query.whereJsonPath(column, '$.length()', operator, value);
     }
@@ -101,21 +109,135 @@ class QueryBuilder {
 
   whereDate(column, operatorOrValue, value) {
     if (value === undefined) {
-      this.query.whereRaw(`DATE(${column}) = ?`, [operatorOrValue]);
+      this.query.whereRaw(`DATE(??) = ?`, [column, operatorOrValue]);
     } else {
-      this.query.whereRaw(`DATE(${column}) ${operatorOrValue} ?`, [value]);
+      QueryBuilder._validOp(operatorOrValue);
+      this.query.whereRaw(`DATE(??) ${operatorOrValue} ?`, [column, value]);
     }
     return this;
   }
 
   whereMonth(column, month) {
-    this.query.whereRaw(`MONTH(${column}) = ?`, [month]);
+    const client = this.query.client?.config?.client;
+    if (client === 'pg' || client === 'postgres') {
+      this.query.whereRaw(`EXTRACT(MONTH FROM ??) = ?`, [column, month]);
+    } else {
+      this.query.whereRaw(`MONTH(??) = ?`, [column, month]);
+    }
     return this;
   }
 
   whereYear(column, year) {
-    this.query.whereRaw(`YEAR(${column}) = ?`, [year]);
+    const client = this.query.client?.config?.client;
+    if (client === 'pg' || client === 'postgres') {
+      this.query.whereRaw(`EXTRACT(YEAR FROM ??) = ?`, [column, year]);
+    } else {
+      this.query.whereRaw(`YEAR(??) = ?`, [column, year]);
+    }
     return this;
+  }
+
+  whereDay(column, operatorOrValue, value) {
+    const client = this.query.client?.config?.client;
+    const isPg = client === 'pg' || client === 'postgres';
+    const isSqlite = client === 'sqlite3' || client === 'better-sqlite3';
+    if (isPg) {
+      if (value === undefined) {
+        this.query.whereRaw(`EXTRACT(DAY FROM ??) = ?`, [column, operatorOrValue]);
+      } else {
+        QueryBuilder._validOp(operatorOrValue);
+        this.query.whereRaw(`EXTRACT(DAY FROM ??) ${operatorOrValue} ?`, [column, value]);
+      }
+    } else if (isSqlite) {
+      if (value === undefined) {
+        this.query.whereRaw(`CAST(strftime('%d', ??) AS INTEGER) = ?`, [column, operatorOrValue]);
+      } else {
+        QueryBuilder._validOp(operatorOrValue);
+        this.query.whereRaw(`CAST(strftime('%d', ??) AS INTEGER) ${operatorOrValue} ?`, [column, value]);
+      }
+    } else {
+      if (value === undefined) {
+        this.query.whereRaw(`DAY(??) = ?`, [column, operatorOrValue]);
+      } else {
+        QueryBuilder._validOp(operatorOrValue);
+        this.query.whereRaw(`DAY(??) ${operatorOrValue} ?`, [column, value]);
+      }
+    }
+    return this;
+  }
+
+  whereTime(column, operatorOrValue, value) {
+    const client = this.query.client?.config?.client;
+    const isPg = client === 'pg' || client === 'postgres';
+    const isSqlite = client === 'sqlite3' || client === 'better-sqlite3';
+    if (isPg) {
+      if (value === undefined) {
+        this.query.whereRaw(`(??)::time = ?`, [column, operatorOrValue]);
+      } else {
+        QueryBuilder._validOp(operatorOrValue);
+        this.query.whereRaw(`(??)::time ${operatorOrValue} ?`, [column, value]);
+      }
+    } else if (isSqlite) {
+      if (value === undefined) {
+        this.query.whereRaw(`strftime('%H:%M:%S', ??) = ?`, [column, operatorOrValue]);
+      } else {
+        QueryBuilder._validOp(operatorOrValue);
+        this.query.whereRaw(`strftime('%H:%M:%S', ??) ${operatorOrValue} ?`, [column, value]);
+      }
+    } else {
+      if (value === undefined) {
+        this.query.whereRaw(`TIME(??) = ?`, [column, operatorOrValue]);
+      } else {
+        QueryBuilder._validOp(operatorOrValue);
+        this.query.whereRaw(`TIME(??) ${operatorOrValue} ?`, [column, value]);
+      }
+    }
+    return this;
+  }
+
+  whereNotBetween(column, range) {
+    this.query.whereNotBetween(column, range);
+    return this;
+  }
+
+  orWhereNull(column) {
+    this.query.orWhereNull(column);
+    return this;
+  }
+
+  orWhereNotNull(column) {
+    this.query.orWhereNotNull(column);
+    return this;
+  }
+
+  orWhereIn(column, values) {
+    this.query.orWhereIn(column, values);
+    return this;
+  }
+
+  orWhereNotIn(column, values) {
+    this.query.orWhereNotIn(column, values);
+    return this;
+  }
+
+  orWhereRaw(sql, bindings) {
+    this.query.orWhereRaw(sql, bindings);
+    return this;
+  }
+
+  addSelect(...columns) {
+    this.query.column(...columns);
+    return this;
+  }
+
+  inRandomOrder() {
+    const client = this.query.client?.config?.client;
+    this.query.orderByRaw(client === 'mysql2' ? 'RAND()' : 'RANDOM()');
+    return this;
+  }
+
+  forPage(page, perPage = 15) {
+    return this.offset((page - 1) * perPage).limit(perPage);
   }
 
   whereExists(callback) {
@@ -136,6 +258,15 @@ class QueryBuilder {
     return this;
   }
 
+  unless(condition, callback, otherwise) {
+    if (!condition) {
+      callback(this);
+    } else if (otherwise) {
+      otherwise(this, condition);
+    }
+    return this;
+  }
+
   // Joins
   join(table, first, operator, second) {
     this.query.join(table, first, operator, second);
@@ -149,6 +280,16 @@ class QueryBuilder {
 
   rightJoin(table, first, operator, second) {
     this.query.rightJoin(table, first, operator, second);
+    return this;
+  }
+
+  innerJoin(table, first, operator, second) {
+    this.query.join(table, first, operator, second);
+    return this;
+  }
+
+  crossJoin(table) {
+    this.query.crossJoin(table);
     return this;
   }
 
@@ -184,6 +325,11 @@ class QueryBuilder {
     return this.offset(count);
   }
 
+  from(table) {
+    this.query.from(table);
+    return this;
+  }
+
   // Grouping
   groupBy(...columns) {
     this.query.groupBy(...columns);
@@ -198,6 +344,20 @@ class QueryBuilder {
     } else {
       throw new Error('Invalid arguments for having(): expected 1 or 3 arguments.');
     }
+    return this;
+  }
+
+  havingRaw(sql, bindings) {
+    this.query.havingRaw(sql, bindings);
+    return this;
+  }
+
+  whereNotExists(callback) {
+    this.query.whereNotExists((builder) => {
+      const subQb = new QueryBuilder('', null, this.connectionName);
+      subQb.query = builder;
+      callback(subQb);
+    });
     return this;
   }
 
@@ -244,31 +404,40 @@ class QueryBuilder {
     return this;
   }
 
+  _softQuery() {
+    let q = this.query.clone();
+    if (this.modelClass && this.modelClass.softDeletes) {
+      const col = this.modelClass.deletedAt || 'deleted_at';
+      if (this._onlyTrashed) q = q.whereNotNull(col);
+      else if (!this._includeTrashed) q = q.whereNull(col);
+    }
+    return q;
+  }
+
   // Aggregates
   async count(column = '*') {
-    const result = await this.query.count(column);
-    // Handle different database result formats
+    const result = await this._softQuery().count(column);
     const countValue = result[0]['count(*)'] || result[0].count || result[0]['COUNT(*)'] || result[0]['COUNT'] || 0;
     return parseInt(countValue) || 0;
   }
 
   async sum(column) {
-    const result = await this.query.sum(column);
+    const result = await this._softQuery().sum(column);
     return parseFloat(result[0][`sum(\`${column}\`)`] || result[0].sum);
   }
 
   async avg(column) {
-    const result = await this.query.avg(column);
+    const result = await this._softQuery().avg(column);
     return parseFloat(result[0][`avg(\`${column}\`)`] || result[0].avg);
   }
 
   async min(column) {
-    const result = await this.query.min(column);
+    const result = await this._softQuery().min(column);
     return result[0][`min(\`${column}\`)`] || result[0].min;
   }
 
   async max(column) {
-    const result = await this.query.max(column);
+    const result = await this._softQuery().max(column);
     return result[0][`max(\`${column}\`)`] || result[0].max;
   }
 
@@ -292,33 +461,108 @@ class QueryBuilder {
   }
 
   withCount(...relations) {
+    // Ensure regular model columns are not dropped when we add count subqueries
+    const existing = this.query._single?.columns;
+    if (!existing || existing.length === 0) {
+      this.query.select(`${this.modelClass.getTableName()}.*`);
+    }
     for (const relation of relations) {
-      this.eagerLoad.push(`${relation}_count`);
+      try {
+        const dummy = this._makeDummy();
+        if (!dummy) continue;
+        const relFn = this.modelClass.prototype[relation];
+        if (typeof relFn !== 'function') continue;
+        const rel = relFn.call(dummy);
+        const relatedClass = rel.getRelatedClass();
+        const relatedTable = relatedClass.getTableName();
+        const parentTable = this.modelClass.getTableName();
+        let countSql;
+        if (rel.constructor.name === 'BelongsTo') {
+          countSql = `(SELECT COUNT(*) FROM ${relatedTable} WHERE ${relatedTable}.${rel.localKey || relatedClass.getPrimaryKey()} = ${parentTable}.${rel.foreignKey})`;
+        } else {
+          countSql = `(SELECT COUNT(*) FROM ${relatedTable} WHERE ${relatedTable}.${rel.foreignKey} = ${parentTable}.${rel.localKey || this.modelClass.getPrimaryKey()})`;
+        }
+        this.query.column(Database.raw(`${countSql} as ${relation}_count`));
+      } catch (_) { /* skip unresolvable relations */ }
     }
     return this;
   }
 
   whereHas(relation, callback) {
-    if (callback) {
-      const subQuery = new QueryBuilder('', this.modelClass, this.connectionName);
-      callback(subQuery);
-    }
+    if (!this.modelClass) return this;
+    try {
+      const dummy = this._makeDummy();
+      const relFn = this.modelClass.prototype[relation];
+      if (typeof relFn !== 'function') return this;
+      const rel = relFn.call(dummy);
+      const relatedClass = rel.getRelatedClass();
+      const relatedTable = relatedClass.getTableName();
+      const parentTable = this.modelClass.getTableName();
+      const isBelongsTo = rel.constructor.name === 'BelongsTo';
+      this.query.whereExists((builder) => {
+        builder.from(relatedTable);
+        if (isBelongsTo) {
+          builder.whereRaw(`${relatedTable}.${rel.localKey || relatedClass.getPrimaryKey()} = ${parentTable}.${rel.foreignKey}`);
+        } else {
+          builder.whereRaw(`${relatedTable}.${rel.foreignKey} = ${parentTable}.${rel.localKey || this.modelClass.getPrimaryKey()}`);
+        }
+        if (callback) {
+          const subQb = new QueryBuilder(relatedTable, relatedClass, this.connectionName);
+          subQb.query = builder;
+          callback(subQb);
+        }
+      });
+    } catch (_) { /* skip if relation can't be resolved at query-build time */ }
     return this;
+  }
+
+  whereDoesntHave(relation, callback) {
+    if (!this.modelClass) return this;
+    try {
+      const dummy = this._makeDummy();
+      const relFn = this.modelClass.prototype[relation];
+      if (typeof relFn !== 'function') return this;
+      const rel = relFn.call(dummy);
+      const relatedClass = rel.getRelatedClass();
+      const relatedTable = relatedClass.getTableName();
+      const parentTable = this.modelClass.getTableName();
+      const isBelongsTo = rel.constructor.name === 'BelongsTo';
+      this.query.whereNotExists((builder) => {
+        builder.from(relatedTable);
+        if (isBelongsTo) {
+          builder.whereRaw(`${relatedTable}.${rel.localKey || relatedClass.getPrimaryKey()} = ${parentTable}.${rel.foreignKey}`);
+        } else {
+          builder.whereRaw(`${relatedTable}.${rel.foreignKey} = ${parentTable}.${rel.localKey || this.modelClass.getPrimaryKey()}`);
+        }
+        if (typeof callback === 'function') {
+          const constraintQB = new QueryBuilder(relatedTable, relatedClass, this.connectionName);
+          constraintQB.query = builder;
+          callback(constraintQB);
+        }
+      });
+    } catch (_) {}
+    return this;
+  }
+
+  doesntHave(relation) {
+    return this.whereDoesntHave(relation);
+  }
+
+  _makeDummy() {
+    const dummy = Object.create(this.modelClass.prototype);
+    dummy.attributes = {};
+    dummy.relations = {};
+    dummy.casts = this.modelClass.casts || {};
+    dummy.fillable = this.modelClass.fillable || [];
+    dummy.guarded = this.modelClass.guarded || ['*'];
+    dummy.appends = this.modelClass.appends || [];
+    dummy.constructor = this.modelClass;
+    return dummy;
   }
 
   // Execution methods
   async get() {
-    let query = this.query;
-    
-    // Apply soft delete filtering if model has soft deletes
-    if (this.modelClass && this.modelClass.softDeletes) {
-      if (this._onlyTrashed) {
-        query = query.whereNotNull('deleted_at');
-      } else if (!this._includeTrashed) {
-        query = query.whereNull('deleted_at');
-      }
-    }
-    
+    const query = this._softQuery();
     const rows = await query;
     const models = rows.map(row => {
       const model = new this.modelClass(row);
@@ -333,18 +577,7 @@ class QueryBuilder {
   }
 
   async first() {
-    let query = this.query;
-    
-    // Apply soft delete filtering if model has soft deletes
-    if (this.modelClass && this.modelClass.softDeletes) {
-      if (this._onlyTrashed) {
-        query = query.whereNotNull('deleted_at');
-      } else if (!this._includeTrashed) {
-        query = query.whereNull('deleted_at');
-      }
-    }
-    
-    const row = await query.first();
+    const row = await this._softQuery().first();
     if (!row) return null;
     const model = new this.modelClass(row);
     model.exists = true;
@@ -357,18 +590,8 @@ class QueryBuilder {
 
 
   async find(id) {
-    let query = this.query.where('id', id);
-    
-    // Apply soft delete filtering if model has soft deletes
-    if (this.modelClass && this.modelClass.softDeletes) {
-      if (this._onlyTrashed) {
-        query = query.whereNotNull('deleted_at');
-      } else if (!this._includeTrashed) {
-        query = query.whereNull('deleted_at');
-      }
-    }
-    
-    const result = await query.first();
+    const pk = this.modelClass?.primaryKey || 'id';
+    const result = await this._softQuery().where(pk, id).first();
     if (!result) return null;
 
     const model = this.modelClass ? new this.modelClass(result) : result;
@@ -386,27 +609,37 @@ class QueryBuilder {
 
   async findOrFail(id) {
     const result = await this.find(id);
-    if (!result) {
-      throw new Error(`Model not found with id: ${id}`);
-    }
+    if (!result) throw new Error(`Model not found with id: ${id}`);
     return result;
   }
 
+  async firstOrFail() {
+    const result = await this.first();
+    if (!result) throw new Error('No records found.');
+    return result;
+  }
+
+  async doesntExist() {
+    return !(await this.exists());
+  }
+
   async pluck(column) {
-    return await this.query.pluck(column);
+    return await this._softQuery().pluck(column);
   }
 
   async exists() {
-    const result = await this.query.select(Database.raw('1')).first();
+    const result = await this._softQuery().select(Database.raw('1')).first();
     return !!result;
   }
 
   // Pagination
   async paginate(page = 1, perPage = 15) {
-    // Get total count first with a fresh query
+    // Get total count — use _softQuery() to respect soft-delete scope
     const countQuery = new QueryBuilder(this.query._single.table, this.modelClass, this.connectionName);
-    countQuery.query = this.query.clone();
-    const total = await countQuery.count();
+    countQuery.query = this._softQuery();
+    countQuery._includeTrashed = this._includeTrashed;
+    countQuery._onlyTrashed = this._onlyTrashed;
+    const total = await countQuery.query.count('* as count').then(r => parseInt(r[0]?.count || r[0]?.['count(*)'] || 0));
     
     // Get the actual data with limit and offset
     const results = await this.clone().offset((page - 1) * perPage).limit(perPage).get();
@@ -472,7 +705,7 @@ class QueryBuilder {
     let results;
 
     do {
-      results = await this.offset((page - 1) * size).limit(size).get();
+      results = await this.clone().offset((page - 1) * size).limit(size).get();
       if (results.length > 0) {
         await callback(results);
       }
@@ -570,6 +803,121 @@ class QueryBuilder {
       throw new Error(`Invalid related class for relation '${relation}'. Make sure the model is properly defined and registered.`);
     }
 
+    // HasManyThrough requires a JOIN through the intermediate table
+    if (relationInstance.constructor.name === 'HasManyThrough') {
+      const rel = relationInstance;
+      const throughClass = ModelRegistry.has(rel.through) ? ModelRegistry.get(rel.through) : null;
+      const throughTable = throughClass ? throughClass.getTableName() : (typeof rel.through === 'string' ? rel.through : rel.through.getTableName());
+      const relatedTable = relatedClass.getTableName();
+      const parentTable = models[0].constructor.getTableName();
+
+      let hmtQuery = new QueryBuilder(relatedTable, relatedClass, relatedClass.getConnectionName());
+      hmtQuery.query = hmtQuery.query
+        .select(`${relatedTable}.*`, `${throughTable}.${rel.firstKey} as _hmt_parent_id`)
+        .join(throughTable, `${relatedTable}.${rel.secondKey}`, `${throughTable}.${rel.secondLocalKey}`)
+        .whereIn(`${throughTable}.${rel.firstKey}`, localValues);
+
+      if (this.eagerLoadConstraints[relationName]) this.eagerLoadConstraints[relationName](hmtQuery);
+      if (nested) hmtQuery = hmtQuery.with(nested);
+
+      const hmtResults = await hmtQuery.get();
+      const hmtArray = Array.isArray(hmtResults) ? hmtResults : [...hmtResults];
+
+      const grouped = {};
+      for (const m of hmtArray) {
+        const pid = m.attributes['_hmt_parent_id'];
+        delete m.attributes['_hmt_parent_id'];
+        if (!grouped[pid]) grouped[pid] = [];
+        grouped[pid].push(m);
+      }
+      for (const model of models) {
+        model.relations[relation] = grouped[model.getAttribute(rel.localKey)] || [];
+      }
+      return;
+    }
+
+    // MorphTo: polymorphic parent — group by type and batch-load each model class
+    if (relationInstance.constructor.name === 'MorphTo') {
+      const rel = relationInstance;
+      const typeGroups = {};
+      for (const model of models) {
+        const morphType = model.getAttribute(rel.morphType);
+        const morphId = model.getAttribute(rel.morphId);
+        if (!morphType || morphId == null) continue;
+        if (!typeGroups[morphType]) typeGroups[morphType] = [];
+        typeGroups[morphType].push(morphId);
+      }
+      const resolved = {};
+      for (const [typeName, ids] of Object.entries(typeGroups)) {
+        const TypeClass = ModelRegistry.get(typeName);
+        if (!TypeClass) continue;
+        const rows = await new QueryBuilder(TypeClass.getTableName(), TypeClass, TypeClass.getConnectionName())
+          .whereIn(TypeClass.getPrimaryKey(), ids).get();
+        for (const row of (Array.isArray(rows) ? rows : [...rows])) {
+          resolved[`${typeName}:${row.getAttribute(TypeClass.getPrimaryKey())}`] = row;
+        }
+      }
+      for (const model of models) {
+        const morphType = model.getAttribute(rel.morphType);
+        const morphId = model.getAttribute(rel.morphId);
+        model.relations[relation] = resolved[`${morphType}:${morphId}`] || null;
+      }
+      return;
+    }
+
+    // BelongsToMany requires a join through the pivot table
+    if (relationInstance.constructor.name === 'BelongsToMany') {
+      const rel = relationInstance;
+      const parentPivotKey = rel.parentPivotKey;
+      const relatedPivotKey = rel.relatedPivotKey;
+      const pivotTable = rel.pivotTable;
+      const relatedTable = relatedClass.getTableName();
+      const parentKey = rel.parentKey || 'id';
+      const relatedKey = rel.relatedKey || relatedClass.getPrimaryKey();
+
+      const parentIds = models.map(m => m.getAttribute(parentKey)).filter(v => v != null);
+      const selectColumns = [
+        `${relatedTable}.*`,
+        `${pivotTable}.${parentPivotKey} as _pivot_parent_id`,
+        ...(rel.pivotColumns || []).map(c => `${pivotTable}.${c} as pivot_${c}`)
+      ];
+
+      let pivotQuery = new QueryBuilder(relatedTable, relatedClass, relatedClass.getConnectionName());
+      pivotQuery.query = pivotQuery.query
+        .select(selectColumns)
+        .join(pivotTable, `${relatedTable}.${relatedKey}`, `${pivotTable}.${relatedPivotKey}`)
+        .whereIn(`${pivotTable}.${parentPivotKey}`, parentIds);
+
+      if (this.eagerLoadConstraints[relationName]) {
+        this.eagerLoadConstraints[relationName](pivotQuery);
+      }
+      if (nested) pivotQuery = pivotQuery.with(nested);
+
+      const pivotResults = await pivotQuery.get();
+      const pivotArray = Array.isArray(pivotResults) ? pivotResults : [...pivotResults];
+
+      const grouped = {};
+      for (const m of pivotArray) {
+        const parentId = m.attributes['_pivot_parent_id'];
+        delete m.attributes['_pivot_parent_id'];
+        // Extract pivot columns
+        if (rel.pivotColumns && rel.pivotColumns.length) {
+          m.pivot = {};
+          for (const c of rel.pivotColumns) {
+            m.pivot[c] = m.attributes[`pivot_${c}`];
+            delete m.attributes[`pivot_${c}`];
+          }
+        }
+        if (!grouped[parentId]) grouped[parentId] = [];
+        grouped[parentId].push(m);
+      }
+
+      for (const model of models) {
+        model.relations[relation] = grouped[model.getAttribute(parentKey)] || [];
+      }
+      return;
+    }
+
     let relationQuery = new QueryBuilder(
       relatedClass.getTableName(),
       relatedClass,
@@ -580,6 +928,11 @@ class QueryBuilder {
     if (relationInstance.constructor.name === 'BelongsTo') {
       const foreignValues = models.map(model => model.getAttribute(foreignKey)).filter(Boolean);
       relationQuery = relationQuery.whereIn(relatedClass.getPrimaryKey(), foreignValues);
+    } else if (relationInstance.constructor.name === 'MorphMany' || relationInstance.constructor.name === 'MorphOne') {
+      const rel = relationInstance;
+      relationQuery = relationQuery
+        .where(rel.morphType, rel.morphClass)
+        .whereIn(rel.morphId, localValues);
     } else {
       relationQuery = relationQuery.whereIn(foreignKey, localValues);
     }
@@ -597,24 +950,31 @@ class QueryBuilder {
     // Convert Collection to array if needed
     const relatedArray = Array.isArray(relatedModels) ? relatedModels : (relatedModels && relatedModels.length !== undefined ? [...relatedModels] : []);
 
+    const isBelongsTo = relationInstance.constructor.name === 'BelongsTo';
+    const isMorphMany = relationInstance.constructor.name === 'MorphMany';
+    const isMorphOne = relationInstance.constructor.name === 'MorphOne';
+
     const grouped = {};
-    for (let i = 0; i < relatedArray.length; i++) {
-      const relatedModel = relatedArray[i];
-      const key = relatedModel.getAttribute(relatedClass.getPrimaryKey());
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(relatedModel);
+    for (const relatedModel of relatedArray) {
+      let groupKey;
+      if (isBelongsTo) {
+        groupKey = relatedModel.getAttribute(relatedClass.getPrimaryKey());
+      } else if (isMorphMany || isMorphOne) {
+        groupKey = relatedModel.getAttribute(relationInstance.morphId);
+      } else {
+        groupKey = relatedModel.getAttribute(foreignKey);
+      }
+      if (!grouped[groupKey]) grouped[groupKey] = [];
+      grouped[groupKey].push(relatedModel);
     }
 
     for (const model of models) {
-      let matchValue;
-      if (relationInstance.constructor.name === 'BelongsTo') {
-        matchValue = model.getAttribute(foreignKey);
-      } else {
-        matchValue = model.getAttribute(localKey);
-      }
+      const matchValue = isBelongsTo
+        ? model.getAttribute(foreignKey)
+        : model.getAttribute(localKey);
       const related = grouped[matchValue] || [];
 
-      if (relationInstance.constructor.name === 'HasOne' || relationInstance.constructor.name === 'BelongsTo') {
+      if (relationInstance.constructor.name === 'HasOne' || isBelongsTo || isMorphOne) {
         model.relations[relation] = related[0] || null;
       } else {
         model.relations[relation] = related;
@@ -647,6 +1007,8 @@ class QueryBuilder {
     cloned.query = this.query.clone();
     cloned.eagerLoad = [...this.eagerLoad];
     cloned.eagerLoadConstraints = { ...this.eagerLoadConstraints };
+    if (this._includeTrashed) cloned._includeTrashed = true;
+    if (this._onlyTrashed) cloned._onlyTrashed = true;
     return cloned;
   }
 

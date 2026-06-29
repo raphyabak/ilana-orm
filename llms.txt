@@ -1,0 +1,1027 @@
+# IlanaORM
+
+IlanaORM is a Laravel Eloquent-style ORM for Node.js built on top of Knex.js. It supports CommonJS, ES Modules, and TypeScript, and works with PostgreSQL (`pg`), MySQL/MariaDB (`mysql2`), and SQLite (`sqlite3`).
+
+```bash
+npm install ilana-orm
+npm install pg          # or mysql2, or sqlite3
+```
+
+---
+
+## Configuration
+
+Create `ilana.config.js` (CommonJS) or `ilana.config.mjs` (ESM) in your project root. Importing any IlanaORM class auto-loads this file and calls `Database.configure()` — no explicit initialization needed.
+
+```js
+// ilana.config.js (CommonJS)
+require('dotenv').config();
+const Database = require('ilana-orm/database/connection');
+
+const config = {
+  default: 'mysql',           // which connection to use by default
+  timezone: 'UTC',            // optional, defaults to 'UTC'
+
+  connections: {
+    sqlite: {
+      client: 'sqlite3',
+      connection: { filename: './database.sqlite' },
+      useNullAsDefault: true,
+    },
+    mysql: {
+      client: 'mysql2',
+      connection: { host: 'localhost', port: 3306, user: '', password: '', database: '' },
+    },
+    postgres: {
+      client: 'pg',
+      connection: { host: 'localhost', port: 5432, user: '', password: '', database: '' },
+    },
+  },
+
+  migrations: { directory: './database/migrations', tableName: 'migrations' },
+  seeds:      { directory: './database/seeds' },
+};
+
+Database.configure(config);
+module.exports = config;
+```
+
+```js
+// ilana.config.mjs (ESM)
+import Database from 'ilana-orm/database/connection';
+const config = { /* same shape */ };
+Database.configure(config);
+export default config;
+```
+
+---
+
+## Models
+
+Models extend `Model` and are the primary way to interact with database tables.
+
+```js
+// CommonJS
+const Model = require('ilana-orm/orm/Model');
+// ESM / TypeScript
+import Model from 'ilana-orm/orm/Model';
+
+class User extends Model {
+  // --- Static properties (class-level config) ---
+  static table = 'users';            // defaults to lowercase class name + 's'
+  static connection = 'mysql';       // optional; uses default connection if omitted
+  static primaryKey = 'id';         // default: 'id'
+  static keyType = 'int';           // 'int' (default) or 'string' (for UUIDs)
+  static incrementing = true;        // false for UUIDs
+  static timestamps = true;          // auto-manages created_at / updated_at
+  static softDeletes = false;        // set true to enable soft deletes via deleted_at
+  static timezone = 'UTC';           // used when writing timestamps
+
+  // --- Instance properties (per-model config) ---
+  fillable = ['name', 'email'];       // only these keys are mass-assignable
+  guarded  = ['id'];                  // alternative to fillable; ['*'] blocks all
+  hidden   = ['password'];            // excluded from toJSON()
+  appends  = ['full_name'];           // accessor methods included in toJSON()
+  casts    = {
+    is_active:  'boolean',
+    metadata:   'json',     // JSON.stringify on set, JSON.parse on get
+    tags:       'array',    // same as 'json'
+    born_at:    'date',     // stored as 'YYYY-MM-DD HH:mm:ss', returned as-is
+    age:        'number',
+  };
+
+  // --- Accessors: getXxxAttribute() ---
+  // Called automatically on direct property access (user.full_name) AND in toJSON() via appends.
+  // The key must be in `appends` to appear in toJSON(); direct access works as long as
+  // the key is in appends, fillable, or exists in attributes.
+  getFullNameAttribute() {
+    return `${this.first_name} ${this.last_name}`;
+  }
+
+  // --- Mutators: setXxxAttribute(value) must return the transformed value ---
+  // Called automatically by setAttribute (which is called on assignment user.email = x,
+  // via fill(), and via update()).
+  setEmailAttribute(value) {
+    return value.toLowerCase();
+  }
+
+  // --- Relationships: always use string names to avoid circular imports ---
+  posts()    { return this.hasMany('Post', 'user_id'); }
+  profile()  { return this.hasOne('Profile', 'user_id'); }
+  roles()    { return this.belongsToMany('Role', 'user_roles', 'user_id', 'role_id'); }
+  country()  { return this.belongsTo('Country', 'country_id'); }
+
+  // --- Query scopes: static scopeXxx(query, ...args) ---
+  static scopeActive(query) {
+    return query.where('is_active', true);
+  }
+  static scopeOfRole(query, role) {
+    return query.where('role', role);
+  }
+
+  // --- Register for polymorphic resolution (call in every model) ---
+  static { this.register(); }
+}
+
+module.exports = User;  // CommonJS
+export default User;    // ESM
+```
+
+### Default table name
+
+If `static table` is not set, the table name is derived as `ClassName.toLowerCase() + 's'` (e.g. `User` → `users`).
+
+### Default foreign keys
+
+- `hasOne` / `hasMany`: FK defaults to `snake_case(ParentClassName)_id` (e.g. `User.hasMany('Post')` → FK is `user_id`, `BlogPost.hasMany('Comment')` → `blog_post_id`).
+- `belongsTo`: FK defaults to `snake_case(RelatedClassName)_id` (e.g. `post.belongsTo('User')` → FK is `user_id`).
+- `belongsToMany` pivot key defaults are similarly derived from each table name without the trailing `s`.
+
+### UUID primary keys
+
+```js
+class Post extends Model {
+  static keyType = 'string';
+  static incrementing = false;
+  // UUID is generated automatically on create
+}
+```
+
+### Custom cast objects
+
+Beyond string casts, you can use cast class instances:
+
+```js
+import { MoneyCast, EncryptedCast, JsonCast, ArrayCast, DateCast } from 'ilana-orm/orm/CustomCasts';
+
+class Product extends Model {
+  casts = {
+    price:       new MoneyCast(),           // stores cents (×100), returns dollars (÷100)
+    secret:      new EncryptedCast('key'),  // base64 encode/decode (not real encryption — replace for production)
+    metadata:    new JsonCast(),
+    tags:        new ArrayCast(),
+    released_at: new DateCast(),            // returns Date object, stores ISO string
+  };
+}
+
+// Custom cast: implement get(value) and set(value)
+class SlugCast {
+  get(v)  { return v; }
+  set(v)  { return v.toLowerCase().replace(/\s+/g, '-'); }
+}
+```
+
+Cast class instances (objects with `get(value)` / `set(value)`) are called automatically by `getAttribute` and `setAttribute` — the same as string casts. `EncryptedCast` uses base64 only, not real encryption; replace it with a proper encryption implementation for sensitive data.
+
+---
+
+## CRUD
+
+```js
+// Create
+const user = await User.create({ name: 'Alice', email: 'alice@example.com' });
+user.wasRecentlyCreated; // true
+user.exists;             // true
+
+// Make (not saved)
+const draft = User.make({ name: 'Bob' });
+
+// Read
+const user  = await User.find(1);           // null if not found
+const user  = await User.findOrFail(1);     // throws if not found
+const user  = await User.findBy('email', 'alice@example.com');
+const user  = await User.first();
+const user  = await User.firstOrFail();
+const users = await User.all();             // returns Collection
+
+// Convenience
+const user = await User.firstOrCreate({ email: 'x@y.com' }, { name: 'X' });
+const user = await User.firstOrNew({ email: 'x@y.com' }, { name: 'X' }); // not saved
+const user = await User.updateOrCreate({ email: 'x@y.com' }, { name: 'X2' });
+
+// Update
+await user.update({ name: 'Alice2' });    // fill + save
+user.name = 'Alice3';
+await user.save();                         // only sends dirty fields
+
+// Dirty tracking
+user.isDirty();          // true if any field changed since last sync
+user.isDirty('name');    // check specific field
+user.getDirty();         // { name: 'Alice3' }
+
+// Delete
+await user.delete();       // soft-delete if softDeletes=true, else hard delete
+await user.forceDelete();  // always hard delete
+await User.destroy([1, 2, 3]);
+
+// Soft deletes (static shortcuts)
+await User.withTrashed().where('name', 'Alice').get();
+await User.onlyTrashed().get();
+await user.restore();
+user.trashed();            // true if deleted_at is set
+
+// Upsert
+await User.upsert([{ email: 'a@b.com', name: 'A' }], ['email'], ['name']);
+
+// Lazy-load relations on an existing instance
+await user.load('posts');
+await user.load('posts', 'profile');       // multiple relations
+await user.loadMissing('posts');           // skips already-loaded relations
+
+// Relation inspection
+user.getRelation('posts');                 // returns loaded relation value or undefined
+user.relationLoaded('posts');              // boolean
+
+// Instance-level hidden/visible/appends
+user.makeHidden(['password', 'secret']);   // add to hidden list (returns this)
+user.makeVisible(['password']);            // remove from hidden list (returns this)
+user.append('full_name');                  // add accessor key to appends (returns this)
+
+// Bypass ALL global scopes on a query
+const all = await User.withoutGlobalScopes().get();
+
+// Serialization
+user.toJSON();             // attributes (minus hidden) + appended accessors + loaded relations
+user.only(['id', 'name']); // returns plain object with only those keys
+user.except(['password']); // returns plain object excluding those keys
+```
+
+### Mass assignment protection
+
+- If `fillable` is set (non-empty array), only listed keys pass through `fill()`.
+- If `fillable` is empty and `guarded = ['*']` (default), nothing passes through `fill()`.
+- `create()` / `save()` bypass fillable — they write `attributes` directly.
+- `update(attrs)` calls `fill(attrs)` then `save()`, so fillable applies.
+
+---
+
+## Query Builder
+
+`User.query()` returns a `QueryBuilder`. All methods are chainable. Call `.get()` or `.first()` to execute.
+
+```js
+// Basic
+const users = await User.query()
+  .where('is_active', true)              // 2-arg: column = value
+  .where('age', '>', 18)                 // 3-arg: column op value
+  .orWhere('role', 'admin')
+  .whereIn('status', ['a', 'b'])
+  .whereNotIn('role', ['banned'])
+  .whereNull('deleted_at')
+  .whereNotNull('verified_at')
+  .whereBetween('age', [18, 65])
+  .whereRaw('salary > ? AND dept = ?', [50000, 'eng'])
+  .get();                                // returns Collection
+
+// JSON (database-specific raw SQL)
+.whereJsonContains('prefs', { theme: 'dark' })   // pg: @>, mysql: JSON_CONTAINS
+.whereJsonLength('tags', '>', 3)                  // pg: jsonb_array_length, mysql: JSON_LENGTH
+
+// Date helpers — all work on MySQL, PostgreSQL, and SQLite
+.whereDate('created_at', '2024-01-01')
+.whereMonth('created_at', 1)          // uses EXTRACT(MONTH FROM ...) on pg
+.whereYear('created_at', 2024)        // uses EXTRACT(YEAR FROM ...) on pg
+.whereDay('created_at', 15)           // uses EXTRACT(DAY FROM ...) on pg
+.whereTime('created_at', '>', '12:00:00')  // uses ::time cast on pg
+
+// OR variants
+.orWhereNull('deleted_at')
+.orWhereNotNull('verified_at')
+.orWhereIn('role', ['admin', 'mod'])
+.orWhereNotIn('status', ['banned'])
+.orWhereRaw('salary > ?', [50000])
+
+// Range
+.whereNotBetween('age', [0, 17])
+
+// Subquery
+.whereExists(q => q.select('*').from('posts').whereRaw('posts.user_id = users.id'))
+
+// Filter by relation existence (WHERE EXISTS subquery)
+.whereHas('posts')
+.whereHas('posts', q => q.where('published', true))
+.doesntHave('posts')                                       // WHERE NOT EXISTS, no constraint
+.whereDoesntHave('posts', q => q.where('published', true)) // WHERE NOT EXISTS with constraint
+
+// Conditional (no-op if falsy condition)
+.when(filter, (q, val) => q.where('role', val))
+.unless(skipInactive, q => q.where('is_active', true))    // inverse of when
+
+// Joins
+.join('profiles', 'users.id', 'profiles.user_id')
+.innerJoin('profiles', 'users.id', 'profiles.user_id')  // alias for join
+.leftJoin('orders', 'users.id', 'orders.user_id')
+.rightJoin('orders', 'users.id', 'orders.user_id')
+.crossJoin('tags')
+
+// Selection
+.select('id', 'name', 'email')
+.addSelect('avatar_url')           // add column(s) without replacing existing select
+.selectRaw('*, YEAR(created_at) as year')
+.distinct()
+
+// Relation counts (adds a subquery column; e.g. posts_count attribute on each model)
+.withCount('posts')
+.withCount('posts', 'comments')
+
+// Ordering
+.orderBy('name', 'asc')
+.orderByRaw('FIELD(status, "active", "pending", "closed")')
+.latest()                          // orderBy created_at desc
+.oldest()                          // orderBy created_at asc
+.inRandomOrder()                   // RAND() on MySQL, RANDOM() on pg/sqlite
+
+// Limit / offset
+.limit(10).offset(20)
+.take(10).skip(20)                 // aliases
+.forPage(2, 15)                    // offset((page-1)*perPage).limit(perPage)
+
+// Grouping
+.groupBy('role')
+.having('count', '>', 5)     // 3-arg form
+.having('COUNT(*) > 5')      // 1-arg raw form
+
+// Aggregates (execute immediately, return scalar; all respect soft-delete scope)
+await User.query().count()          // integer
+await User.query().sum('salary')    // float
+await User.query().avg('age')       // float
+await User.query().min('age')
+await User.query().max('age')
+await User.query().pluck('email')   // array of values
+await User.query().exists()         // boolean
+await User.query().doesntExist()    // boolean
+// paginate() total count also respects soft-delete scope
+
+// Locking (for transactions)
+.lockForUpdate()   // SELECT ... FOR UPDATE
+.sharedLock()      // SELECT ... FOR SHARE
+.skipLocked()
+.noWait()
+
+// Debug
+.toSql()           // returns SQL string without executing
+.toKnex()          // returns raw Knex query builder
+
+// Soft delete variants (on QueryBuilder)
+.withTrashed()     // include soft-deleted records
+.onlyTrashed()     // only soft-deleted records
+.withoutTrashed()  // exclude soft-deleted (default when softDeletes=true)
+
+// Connection switching
+.on('analytics_db')
+```
+
+### Query scopes
+
+Define `static scopeName(query, ...args)` on the model. Call as `.name(...args)` on the builder via a Proxy — unknown property accesses are checked against `scope<CamelCase>` methods.
+
+```js
+class Post extends Model {
+  static scopePublished(query)         { return query.where('published', true); }
+  static scopeOfType(query, type)      { return query.where('type', type); }
+}
+
+const posts = await Post.query().published().ofType('article').get();
+```
+
+### Pagination
+
+```js
+// Standard (runs a COUNT + SELECT)
+const result = await User.query().paginate(1, 15);
+// { data: Collection, total, perPage, currentPage, lastPage, from, to, nextPage }
+
+// Simple (no COUNT — just checks if more exist)
+const result = await User.query().simplePaginate(1, 15);
+// { data: Collection, hasMore: boolean }
+
+// Cursor (efficient for large datasets, uses column value as cursor)
+const result = await User.query().orderBy('id').cursorPaginate(15, cursor, 'id', 'asc');
+// { data, nextCursor, prevCursor, hasNextPage, hasPrevPage, perPage }
+```
+
+### Chunking & lazy iteration
+
+```js
+// Process in chunks (re-queries with LIMIT/OFFSET per chunk)
+await User.query().chunk(100, async (chunk) => {
+  for (const user of chunk) { await process(user); }
+});
+
+// Async generator — yields one record at a time, fetched in batches of chunkSize
+for await (const user of User.query().lazy(500)) { await process(user); }
+for await (const user of User.query().cursor(1000)) { await process(user); } // alias
+```
+
+---
+
+## Relationships
+
+**Always pass related models as strings** to avoid circular import errors. String names are resolved from `ModelRegistry` at query time.
+
+```js
+// One-to-One
+hasOne('Profile', 'user_id')           // FK defaults to snake_case(ClassName)_id (e.g. user_id)
+belongsTo('User', 'user_id')           // FK defaults to snake_case(RelatedName)_id; ownerKey defaults to primaryKey
+
+// One-to-Many
+hasMany('Post', 'user_id')             // FK and ownerKey can be omitted when they follow convention
+
+// Many-to-Many
+belongsToMany('Role', 'user_roles', 'user_id', 'role_id')
+  .withPivot('assigned_at', 'assigned_by')  // include these pivot columns
+  .withTimestamps()                          // adds created_at, updated_at to pivot columns
+
+// Has-Many-Through
+// Country has many Posts through Users
+hasManyThrough('Post', 'User', 'country_id', 'user_id')
+// args: related, through, firstKey (on through table), secondKey (on related table)
+
+// Polymorphic — one-to-one
+morphOne('Image', 'imageable')         // stores imageable_type, imageable_id in images table
+
+// Polymorphic — one-to-many
+morphMany('Comment', 'commentable')    // Post/Video side: stores commentable_type, commentable_id
+morphTo('commentable')                 // Comment side: reads commentable_type/commentable_id, resolves via ModelRegistry
+```
+
+### Eager loading
+
+```js
+// Basic
+const users = await User.with('posts').get();
+const users = await User.with('posts', 'profile', 'roles').get();
+const users = await User.with('posts.comments').get();  // nested dot notation
+
+// With query constraints — single relation or object form for multiple
+const users = await User.query()
+  .withConstraints('posts', q => q.where('published', true).limit(5))
+  .get();
+const users = await User.query()
+  .withConstraints({ posts: q => q.where('published', true), comments: q => q.orderBy('id', 'desc') })
+  .get();
+
+// Relation count (subquery SELECT; adds posts_count attribute to each model)
+const users = await User.withCount('posts').get();
+users[0].attributes.posts_count;
+
+// Lazy load on an existing instance
+await user.load('posts');
+await user.load('posts', 'profile');  // multiple
+await user.loadMissing('posts');      // skips if already loaded
+
+// Access loaded relation
+user.getRelation('posts');            // returns loaded value or undefined
+user.relationLoaded('posts');         // boolean
+user.relations['posts'];              // direct access
+```
+
+### BelongsToMany pivot methods
+
+```js
+const relation = user.roles();  // returns BelongsToMany instance
+
+await relation.attach(roleId);
+await relation.attach(roleId, { assigned_at: new Date() }); // with pivot attributes
+await relation.detach(roleId);
+await relation.detach();        // detach all
+
+// sync — detach all, then re-attach; supports pivot attributes
+await relation.sync([1, 2, 3]);
+await relation.sync({ 1: { assigned_at: new Date() }, 2: {} }); // object form with pivot attrs
+
+// toggle — attach if not present, detach if present
+await relation.toggle(roleId);
+await relation.toggle([1, 2, 3]);
+
+// Update pivot row attributes without detach/reattach
+await relation.updateExistingPivot(roleId, { assigned_at: new Date() });
+
+// Pivot data available after eager loading when withPivot() was set
+const roles = await user.roles().getResults();
+roles[0].pivot.assigned_at;
+```
+
+---
+
+## Model Events & Observers
+
+Returning `false` from a `creating`, `updating`, `saving`, or `deleting` handler cancels the operation and `save()`/`delete()` returns `false`.
+
+```js
+class User extends Model {
+  static {
+    // fires before INSERT — return false to cancel
+    this.creating(async user => { user.email = user.email.toLowerCase(); });
+    this.created(async user  => { await sendWelcomeEmail(user.email); });
+    // fires before UPDATE — return false to cancel
+    this.updating(async user => { if (user.isDirty('email')) user.email_verified_at = null; });
+    this.updated(async user  => { /* ... */ });
+    // fires before both INSERT and UPDATE
+    this.saving(async user   => { /* ... */ });
+    this.saved(async user    => { /* ... */ });
+    // fires before DELETE — return false to cancel
+    this.deleting(async user => { await user.posts().delete(); });
+    this.deleted(async user  => { /* cleanup */ });
+    // soft-delete restore
+    this.restoring(async user => { /* ... */ });
+    this.restored(async user  => { /* ... */ });
+  }
+}
+```
+
+### Observers
+
+```js
+class UserObserver {
+  async creating(user) { user.email = user.email.toLowerCase(); }
+  async created(user)  { await sendWelcomeEmail(user.email); }
+  async updating(user) { /* ... */ }
+  async updated(user)  { /* ... */ }
+  async saving(user)   { /* ... */ }
+  async saved(user)    { /* ... */ }
+  async deleting(user) { /* ... */ }
+  async deleted(user)  { /* ... */ }
+  async restoring(user){ /* ... */ }
+  async restored(user) { /* ... */ }
+}
+
+User.observe(UserObserver);          // pass class — instantiated internally
+User.observe(new UserObserver());    // or pass instance
+User.observe({ created: async u => { /* inline */ } }); // or plain object
+```
+
+---
+
+## Transactions
+
+Model operations inside `DB.transaction()` automatically detect and use the active transaction via `Database._currentTransaction`. You do not need to pass `trx` explicitly to model calls.
+
+```js
+import { DB } from 'ilana-orm';
+// or: const { DB } = require('ilana-orm');
+
+// Callback style — auto commit on success, auto rollback on thrown error
+await DB.transaction(async () => {
+  const user = await User.create({ name: 'Alice' });
+  await Post.create({ title: 'Hi', user_id: user.id });
+});
+
+// With retry (retries on deadlock/serialization failure, waits 100ms × attempt between retries)
+await DB.transaction(async () => {
+  await processPayment();
+}, 3);
+
+// On a specific connection
+await DB.transaction(async () => { /* ... */ }, 1, 'analytics_db');
+
+// Manual control
+const trx = await DB.beginTransaction();
+try {
+  await User.create({ name: 'Bob' });
+  await DB.commit(trx);
+} catch (e) {
+  await DB.rollback(trx);
+  throw e;
+}
+```
+
+---
+
+## Migrations
+
+Migrations use a locking mechanism (`migrations_lock` table) to prevent concurrent runs. Use `npx ilana migrate:unlock` if a migration crashes and leaves the lock.
+
+```bash
+npx ilana make:migration create_users_table
+npx ilana make:migration add_avatar_to_users --table=users
+npx ilana make:migration create_posts_table  --create=posts
+
+npx ilana migrate                          # run pending
+npx ilana migrate --connection=analytics   # specific connection
+npx ilana migrate --only=20240101_foo.js   # single file
+npx ilana migrate:rollback                 # last batch
+npx ilana migrate:rollback --step=2        # last N batches
+npx ilana migrate:reset                    # rollback all
+npx ilana migrate:fresh                    # drop all tables + migrate
+npx ilana migrate:fresh --seed             # + seed
+npx ilana migrate:status
+npx ilana migrate:list
+npx ilana migrate:unlock                   # clear stuck lock
+```
+
+### Migration file
+
+```js
+// CommonJS
+class CreateUsersTable {
+  // connection = 'mysql'; // optional per-migration connection override
+  async up(schema) {
+    await schema.createTable('users', table => {
+      table.increments('id');
+      table.string('name').notNullable();
+      table.string('email', 255).unique().notNullable();
+      table.string('password').notNullable();
+      table.boolean('is_active').defaultTo(true);
+      table.json('metadata').nullable();
+      table.timestamp('email_verified_at').nullable();
+      table.timestamp('deleted_at').nullable();  // for soft deletes
+      table.timestamps(true, true);              // created_at, updated_at with defaults
+      // Foreign key
+      table.integer('role_id').unsigned().nullable();
+      table.foreign('role_id').references('id').inTable('roles').onDelete('SET NULL');
+    });
+  }
+  async down(schema) {
+    await schema.dropTable('users');
+  }
+}
+module.exports = CreateUsersTable;
+```
+
+Migrations can export a class or a plain object with `up` and `down` methods.
+
+### Column types (Knex passthrough via SchemaBuilder)
+
+`increments`, `bigIncrements`, `string(name, length)`, `text`, `longText`, `mediumText`, `char(name, length)`, `integer`, `bigInteger`, `smallInteger`, `tinyInteger`, `decimal(name, precision, scale)`, `float(name, precision, scale)`, `double`, `real`, `boolean`, `date`, `time`, `datetime`, `timestamp`, `timestamps(useTimestamps, defaultToNow)`, `json`, `jsonb` (pg only), `uuid`, `binary`, `enum(name, values)`, `specificType(name, rawType)`
+
+Column modifiers: `.nullable()`, `.notNullable()`, `.defaultTo(value)`, `.unique(indexName?)`, `.index(indexName?)`, `.unsigned()`, `.after(columnName)` (MySQL only), `.first()` (MySQL only), `.comment(text)`
+
+Indexes & constraints:
+```js
+table.index(['col1', 'col2'], 'idx_name');
+table.unique(['email', 'tenant_id'], 'unique_email_tenant');
+table.primary(['col1', 'col2']);
+table.foreign('col').references('id').inTable('other_table').onDelete('CASCADE').onUpdate('CASCADE');
+table.dropForeign(['col']);
+table.dropColumn(['col1', 'col2']);
+table.dropIndex(['col']);
+table.renameColumn('old', 'new');
+table.string('col').alter();   // modify existing column
+```
+
+SchemaBuilder extras:
+```js
+schema.hasTable('users')         // boolean
+schema.hasColumn('users', 'email')
+schema.renameTable('from', 'to')
+schema.dropTableIfExists('name')
+schema.raw('SQL string')
+schema.createSchema('analytics')          // pg only
+schema.enableExtension('uuid-ossp')       // pg only
+schema.createEnum('mood', ['sad', 'ok'])  // pg only
+schema.fn.now()                           // database NOW() helper
+```
+
+---
+
+## Seeders
+
+```bash
+npx ilana make:seeder UserSeeder
+npx ilana seed
+npx ilana seed --class=UserSeeder
+npx ilana seed --connection=mysql
+```
+
+```js
+const Seeder = require('ilana-orm/orm/Seeder');
+
+class UserSeeder extends Seeder {
+  // connection = 'mysql';  // optional per-seeder connection
+
+  async run() {
+    await User.create({ name: 'Admin', email: 'admin@example.com', role: 'admin' });
+    await User.factory().times(50).create();
+
+    // Run other seeders in order
+    await this.call([RoleSeeder, PostSeeder]);
+
+    // Run with a specific connection
+    await this.callWith({ UserSeeder }, 'analytics_db');
+
+    // Idempotent — skips if already executed (logs to seeder_log table)
+    await this.callOnce(AdminSeeder, 'admin_user_setup');
+  }
+}
+
+module.exports = UserSeeder;
+```
+
+Seeder utilities:
+```js
+await this.truncate('users');
+await this.truncateInOrder(['user_roles', 'posts', 'users']); // disables FK checks first
+await this.disableForeignKeyChecks();
+await this.enableForeignKeyChecks();
+await this.wipeDatabase();  // truncates all tables
+await this.createInBatches(User.factory(), 10000, {}); // creates in chunks of batchSize (default 1000)
+await this.progress(total, async (update) => { update(count); }); // logs % progress
+```
+
+---
+
+## Factories
+
+```bash
+npx ilana make:factory UserFactory
+```
+
+Factories are defined with `defineFactory` and registered globally. `Model.factory()` returns a fresh instance each time (copies definition + states from the registered factory to avoid state pollution).
+
+```js
+const { defineFactory } = require('ilana-orm/orm/Factory');
+const { faker } = require('@faker-js/faker');
+
+const UserFactory = defineFactory(User, (faker) => ({
+  name:      faker.person.fullName(),
+  email:     faker.internet.email(),
+  password:  'password123',
+  is_active: true,
+}))
+  .state('admin', () => ({ role: 'admin', is_active: true }))
+  .state('inactive', () => ({ is_active: false }))
+  .afterMaking(user => {
+    // called after make(), before save
+    user.slug = user.name.toLowerCase().replace(/\s+/g, '-');
+  })
+  .afterCreating(async user => {
+    // called after save()
+    await Profile.create({ user_id: user.id });
+  })
+  .beforeMaking(attrs => {
+    // modify raw attributes object before model is created; must return attrs
+    return attrs;
+  })
+  .beforeCreating(async user => {
+    // called before save()
+    user.email_verified_at = new Date();
+  });
+
+// Usage
+const user  = await User.factory().create();
+const users = await User.factory().times(10).create();
+const admin = await User.factory().state('admin').create({ name: 'Root' });
+const draft = User.factory().make();                          // not saved
+const attrs = User.factory().raw();                           // plain object, not a model instance
+
+// Batch insert (BulkFactory — uses raw INSERT, bypasses model events)
+const { bulkFactory } = require('ilana-orm/orm/Factory');
+const bulk = bulkFactory(User, faker => ({ name: faker.person.fullName(), email: faker.internet.email() }));
+const users = await bulk.setBatchSize(500).create(10000);
+
+// Factory.createWithRelations — attaches BelongsToMany entries
+const user = await User.factory().createWithRelations({}, {
+  roles: [{ id: 1 }, { id: 2 }]
+});
+
+// Factory.createInBatches — splits count into chunks
+const users = await User.factory().times(5000).createInBatches(500);
+
+// Global sequences
+const { globalSequence, resetGlobalSequence } = require('ilana-orm/orm/Factory');
+defineFactory(User, () => ({ email: `user${globalSequence('user')}@example.com` }));
+resetGlobalSequence('user');
+```
+
+---
+
+## Collections
+
+`get()` and `all()` return a `Collection`. `Collection extends Array`, so all native Array methods (`forEach`, `find`, `some`, `every`, `flat`, etc.) work normally. IlanaORM adds:
+
+```js
+// Factory
+Collection.make([1, 2, 3])
+Collection.times(5, i => ({ id: i }))
+Collection.range(1, 10)
+
+// Retrieval
+.first()                   // first element (not a query)
+.last()
+.take(n)                   // first n elements
+.skip(n)                   // drop first n elements
+.random(n)                 // n random elements (or 1 element if n=1, not wrapped)
+
+// Filtering / transforming
+.filter(fn)                // returns new Collection
+.map(fn)                   // returns new Collection
+.reject(fn)                // opposite of filter
+.pluck('key')              // Collection of attribute values
+.unique('key')             // deduplicate by key (or by value if no key)
+.where('key', value)       // strict equality filter
+.firstWhere('key', value)  // first match (returns element, not Collection)
+.chunk(n)                  // Collection of Collections
+
+// Grouping / indexing
+.groupBy('key')            // plain object: { groupValue: Collection }
+.keyBy('key')              // plain object: { keyValue: element }
+.countBy('key')            // plain object: { value: count }
+.partition(fn)             // [Collection(passed), Collection(failed)]
+
+// Aggregates
+.sum('key')
+.avg('key')
+.min('key')
+.max('key')
+
+// Sorting
+.sortBy('key')
+.sortByDesc('key')
+.shuffle()
+
+// Utility / chaining
+.flatten()
+.tap(fn)                   // calls fn(this), returns this
+.pipe(fn)                  // returns fn(this) — can change type
+.when(condition, fn)       // calls fn(this) if truthy, returns this
+.unless(condition, fn)     // calls fn(this) if falsy, returns this
+.whenEmpty(fn)             // calls fn(this) if empty
+.whenNotEmpty(fn)          // calls fn(this) if not empty
+
+// Type checks
+.isEmpty()
+.isNotEmpty()
+
+// Export
+.toArray()                 // plain JS array
+.toJSON()                  // array of toJSON() results
+```
+
+---
+
+## Multiple Connections
+
+```js
+// Static connection on model class
+class Analytics extends Model { static connection = 'analytics_db'; }
+
+// Per-query connection override
+const users = await User.on('replica').get();
+await User.query().on('replica').where('id', 1).first();
+```
+
+---
+
+## Global Scopes
+
+```js
+// Add a scope that applies to all queries on this model
+User.addGlobalScope('active', query => query.where('is_active', true));
+
+// Remove a scope
+User.removeGlobalScope('active');
+
+// Query that bypasses a specific scope
+const users = await User.withoutGlobalScope('active').get();
+```
+
+---
+
+## ModelRegistry
+
+Used internally to resolve string-based relation references and `morphTo` type columns. Models call `static { this.register(); }` to enroll themselves.
+
+```js
+const ModelRegistry = require('ilana-orm/orm/ModelRegistry');
+
+ModelRegistry.register('User', User);   // auto-called by this.register()
+ModelRegistry.get('User');              // returns the class
+ModelRegistry.has('User');              // boolean
+ModelRegistry.all();                    // Map of all registered models
+ModelRegistry.clear();                  // remove all
+```
+
+`morphTo` reads `commentable_type` from the database (e.g. `'Post'`) and looks it up in the registry. Every model involved in polymorphic relations **must** call `static { this.register(); }`.
+
+---
+
+## Database & DB Facade
+
+```js
+const Database = require('ilana-orm/database/connection');
+const DB       = require('ilana-orm/database/DB');
+
+// Database — low-level singleton
+Database.configure(config);            // called automatically by config file
+Database.connection('name');           // returns raw Knex instance
+Database.getInstance();                // default Knex instance
+Database.getDefaultConnection();       // string name
+Database.hasConnection('name');        // boolean
+Database.table('users', 'conn');       // Knex query builder for a table
+Database.raw('SELECT 1');              // raw Knex query on default connection
+Database.getCurrentTransaction();      // active trx or null
+Database.transaction(cb, attempts, conn);
+Database.beginTransaction(conn);       // returns { commit, rollback, ...trx }
+Database.commit(trx);
+Database.rollback(trx);
+
+// DB — higher-level facade (delegates to Database)
+DB.transaction(cb, attempts, conn);
+DB.beginTransaction(conn);
+DB.commit(trx);
+DB.rollback(trx);
+DB.table('users', conn);               // raw Knex query builder
+DB.raw(sql, bindings, conn);
+DB.connection(name);
+DB.getDefaultConnection();
+```
+
+---
+
+## CLI
+
+```bash
+npx ilana setup                          # scaffold config + dirs
+
+# Code generation (auto-detects TS vs JS, src/ vs root)
+npx ilana make:model   <Name> [-m] [-f] [-s] [-a]  # --migration --factory --seed --all
+npx ilana make:model   <Name> --pivot    # pivot/join-table model
+npx ilana make:migration <name> [--table=t] [--create=t]
+npx ilana make:seeder  <Name>
+npx ilana make:factory <Name>
+npx ilana make:observer <Name> [--model=Model]
+npx ilana make:cast    <Name>
+
+# Migrations
+npx ilana migrate [--connection=name] [--only=file] [--to=timestamp]
+npx ilana migrate:rollback [--step=n] [--to=timestamp] [--connection=name]
+npx ilana migrate:reset   [--connection=name]
+npx ilana migrate:fresh   [--seed] [--connection=name]
+npx ilana migrate:status  [--connection=name]
+npx ilana migrate:list
+npx ilana migrate:unlock
+
+# Seeds
+npx ilana seed [--class=Name] [--connection=name]
+npx ilana db:seed   # alias
+npx ilana db:wipe   # drop all tables
+```
+
+The CLI detects TypeScript projects by the presence of `tsconfig.json` and generates `.ts` files accordingly. It detects ESM projects by `"type": "module"` in `package.json` and generates `.mjs` config and ESM-style templates.
+
+Generated model/migration files default to `src/models`, `src/database/...` if a `src/` directory exists, otherwise `models/`, `database/...`.
+
+---
+
+## TypeScript
+
+Types are hand-authored `.d.ts` files — not generated from source. The main type files are:
+
+- `index.d.ts` — re-exports `Model`, `QueryBuilder`, `Collection`, `Database`, relation types, cast types
+- `orm/Model.d.ts` — full Model class with all static and instance method signatures
+- `orm/QueryBuilder.d.ts`
+- `orm/Relation.d.ts` — `HasOne`, `HasMany`, `BelongsTo`, `BelongsToMany`, `HasManyThrough`, `MorphTo`, `MorphMany`
+- `orm/Collection.d.ts`
+- `orm/CustomCasts.d.ts`
+- `database/connection.d.ts`
+
+For typed models, declare attributes with `declare`:
+
+```ts
+import Model from 'ilana-orm/orm/Model';
+
+export default class User extends Model {
+  protected static table = 'users';
+  protected fillable: string[] = ['name', 'email'];
+  protected casts = { is_active: 'boolean' as const };
+
+  declare id: number;
+  declare name: string;
+  declare email: string;
+  declare is_active: boolean;
+  declare created_at: Date;
+  declare updated_at: Date;
+
+  posts() { return this.hasMany('Post', 'user_id'); }
+
+  static { this.register(); }
+}
+```
+
+The `ModelCasts` type allows: `'string' | 'number' | 'boolean' | 'date' | 'json' | 'array' | 'object' | 'float'`. Cast class instances are not typed in `ModelCasts` — use `any` if needed.
+
+---
+
+## Package exports map
+
+```
+ilana-orm                        → { Model, QueryBuilder, Collection, Database, DB, SchemaBuilder,
+                                      MigrationRunner, Seeder, Factory, defineFactory,
+                                      HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphOne, MorphMany,
+                                      MoneyCast, EncryptedCast, JsonCast, ArrayCast, DateCast }
+ilana-orm/orm/Model              → Model (default)
+ilana-orm/orm/QueryBuilder       → QueryBuilder (default)
+ilana-orm/orm/Collection         → Collection (default)
+ilana-orm/orm/Relation           → { Relation, HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphOne, MorphMany }
+ilana-orm/orm/CustomCasts        → { MoneyCast, EncryptedCast, JsonCast, ArrayCast, DateCast }
+ilana-orm/orm/Factory            → { Factory, defineFactory, factory, bulkFactory, globalSequence, resetGlobalSequence, trait }
+ilana-orm/orm/Seeder             → Seeder (default)
+ilana-orm/orm/ModelRegistry      → ModelRegistry (default)
+ilana-orm/orm/MigrationRunner    → MigrationRunner (default)
+ilana-orm/database/connection    → Database (default)
+ilana-orm/database/DB            → DB (default)
+ilana-orm/database/schema-builder→ SchemaBuilder (default)
+```
+
+Each entry has a `.js` (CommonJS) and `.mjs` (ESM) file. TypeScript types are `.d.ts` files alongside the JS files.

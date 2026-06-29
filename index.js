@@ -24,6 +24,7 @@ module.exports = {
   defineFactory: Factory.defineFactory,
   
   // Relationships
+  MorphOne: Relation.MorphOne,
   ...Relation,
   
   // Custom Casts

@@ -52,9 +52,11 @@ export class BelongsToMany extends Relation {
   withTimestamps(): this;
   addConstraints(): void;
   getResults(): Promise<Model[]>;
-  attach(id: any, attributes?: any): Promise<void>;
+  attach(id: any, attributes?: Record<string, any>): Promise<void>;
   detach(id?: any): Promise<number>;
-  sync(ids: any[]): Promise<void>;
+  sync(ids: any[] | Record<string | number, Record<string, any>>): Promise<void>;
+  toggle(ids: any | any[]): Promise<void>;
+  updateExistingPivot(id: any, attributes: Record<string, any>): Promise<number>;
 }
 
 export class HasManyThrough extends Relation {
@@ -96,4 +98,14 @@ export class MorphMany extends Relation {
 
   addConstraints(): void;
   getResults(): Promise<Collection<Model>>;
+}
+export class MorphOne extends Relation {
+  protected morphType: string;
+  protected morphId: string;
+  protected morphClass: string;
+
+  constructor(parent: Model, related: string | typeof Model, morphType: string, morphId: string, morphClass: string);
+
+  addConstraints(): void;
+  getResults(): Promise<Model | null>;
 }

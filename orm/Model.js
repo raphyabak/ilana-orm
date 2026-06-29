@@ -1,6 +1,6 @@
 // Model.js
 const QueryBuilder = require('./QueryBuilder');
-const { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphMany } = require('./Relation');
+const { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphMany, MorphOne } = require('./Relation');
 const ModelRegistry = require('./ModelRegistry');
 const Database = require('../database/connection');
 
@@ -86,7 +86,8 @@ class Model {
     const allKeys = new Set([
       ...Object.keys(this.attributes || {}),
       ...this.fillable,
-      ...(this._deferred ? Object.keys(this._deferred) : [])
+      ...(this._deferred ? Object.keys(this._deferred) : []),
+      ...(this.appends || [])
     ]);
 
     for (const key of allKeys) {
@@ -103,6 +104,16 @@ class Model {
         });
       }
     }
+  }
+
+  _toPascalCase(key) {
+    return key.replace(/(^|_)([a-z])/g, (_, __, c) => c.toUpperCase());
+  }
+
+  _selfFk() {
+    return this.constructor.name
+      .replace(/([A-Z])/g, (m, l, i) => i === 0 ? l.toLowerCase() : '_' + l.toLowerCase())
+      + '_id';
   }
 
   // --- Static registry & resolving ---
@@ -150,6 +161,7 @@ class Model {
   }
 
   static with(...rels) { return this.query().with(...rels); }
+  static withCount(...rels) { return this.query().withCount(...rels); }
   static on(connectionOrTrx) {
     if (connectionOrTrx && typeof connectionOrTrx.raw === 'function') {
       // It's a transaction object
@@ -166,8 +178,14 @@ class Model {
   static async findBy(column, value) { return this.query().where(column, value).first(); }
   static async first() { return this.query().first(); }
   static async firstOrFail() { return this.query().firstOrFail(); }
-  static latest(col) { return this.query().latest(col || 'created_at'); }
-  static oldest(col) { return this.query().oldest(col || 'created_at'); }
+  static latest(col) { return this.query().latest(col || this.createdAt || 'created_at'); }
+  static oldest(col) { return this.query().oldest(col || this.createdAt || 'created_at'); }
+  static withTrashed() { return this.query().withTrashed(); }
+  static onlyTrashed() { return this.query().onlyTrashed(); }
+  static async upsert(data, uniqueBy, update) { return this.query().upsert(data, uniqueBy, update); }
+  static withoutGlobalScopes() {
+    return new QueryBuilder(this.getTableName(), this, this.getConnectionName());
+  }
 
   static make(attrs = {}) {
     const inst = new this(attrs);
@@ -192,7 +210,16 @@ class Model {
   }
 
   static async insert(data) { return this.query().insert(data); }
-  static async destroy(ids) { return this.query().whereIn(this.primaryKey, Array.isArray(ids) ? ids : [ids]).delete(); }
+  static async destroy(ids) {
+    const idList = Array.isArray(ids) ? ids : [ids];
+    if (this.softDeletes) {
+      const models = await this.query().whereIn(this.primaryKey, idList).get();
+      let count = 0;
+      for (const model of models) { await model.delete(); count++; }
+      return count;
+    }
+    return this.query().whereIn(this.primaryKey, idList).delete();
+  }
   static async firstOrCreate(a, v) { return (await this.query().where(a).first()) || this.create({ ...a, ...v }); }
   static async firstOrNew(a, v) {
     const existing = await this.query().where(a).first();
@@ -211,8 +238,13 @@ class Model {
   }
 
   // scopes
-  static addGlobalScope(n, s) { this.globalScopes.set(n, s); }
-  static removeGlobalScope(n) { this.globalScopes.delete(n); }
+  static addGlobalScope(n, s) {
+    if (!Object.hasOwn(this, 'globalScopes')) this.globalScopes = new Map();
+    this.globalScopes.set(n, s);
+  }
+  static removeGlobalScope(n) {
+    if (Object.hasOwn(this, 'globalScopes')) this.globalScopes.delete(n);
+  }
   static withoutGlobalScope(n) {
     const qb = new QueryBuilder(this.getTableName(), this, this.getConnectionName());
     const scopes = new Map(this.globalScopes);
@@ -220,10 +252,17 @@ class Model {
     scopes.forEach(s => s(qb));
     return qb;
   }
-  static applyGlobalScopes(qb) { this.globalScopes.forEach(s => s(qb)); }
+  static applyGlobalScopes(qb) {
+    const scopes = Object.hasOwn(this, 'globalScopes') ? this.globalScopes : new Map();
+    scopes.forEach(s => s(qb));
+  }
 
   // events
-  static _addEventHandler(evt, fn) { this.events[evt] = this.events[evt] || []; this.events[evt].push(fn); }
+  static _addEventHandler(evt, fn) {
+    if (!Object.hasOwn(this, 'events')) this.events = {};
+    this.events[evt] = this.events[evt] || [];
+    this.events[evt].push(fn);
+  }
   static creating(fn) { this._addEventHandler('creating', fn); }
   static created(fn) { this._addEventHandler('created', fn); }
   static updating(fn) { this._addEventHandler('updating', fn); }
@@ -254,7 +293,8 @@ class Model {
   }
   // static async fireEvent(evt, mdl) { for (const h of this.events[evt] || []) if (await h(mdl) === false) return false; }
   static async fireEvent(evt, mdl) {
-    const handlers = this.events[evt] || [];
+    const ownEvents = Object.hasOwn(this, 'events') ? this.events : {};
+    const handlers = ownEvents[evt] || [];
     for (const handler of handlers) {
       if (await handler(mdl) === false) return false;
     }
@@ -278,6 +318,46 @@ class Model {
     return this;
   }
 
+  async load(...relations) {
+    const qb = new QueryBuilder(this.constructor.getTableName(), this.constructor, this.constructor.getConnectionName());
+    qb.eagerLoad = relations.flat();
+    await qb.loadRelations([this]);
+    return this;
+  }
+
+  async loadMissing(...relations) {
+    const toLoad = relations.flat().filter(r => !(r.split('.')[0] in this.relations));
+    if (toLoad.length) await this.load(...toLoad);
+    return this;
+  }
+
+  getRelation(key) {
+    return this.relations[key];
+  }
+
+  relationLoaded(key) {
+    return Object.prototype.hasOwnProperty.call(this.relations, key);
+  }
+
+  makeHidden(keys) {
+    const list = Array.isArray(keys) ? keys : [keys];
+    this.hidden = [...(this.hidden || []), ...list];
+    return this;
+  }
+
+  makeVisible(keys) {
+    const list = Array.isArray(keys) ? keys : [keys];
+    this.hidden = (this.hidden || []).filter(k => !list.includes(k));
+    return this;
+  }
+
+  append(keys) {
+    const list = Array.isArray(keys) ? keys : [keys];
+    this.appends = [...(this.appends || []), ...list];
+    this._createAttributeGetters();
+    return this;
+  }
+
   isFillable(k) {
     if (Array.isArray(this.fillable) && this.fillable.length) return this.fillable.includes(k);
     if (this.guarded.includes('*')) return false;
@@ -285,23 +365,36 @@ class Model {
   }
 
   getAttribute(k) {
+    const accessor = `get${this._toPascalCase(k)}Attribute`;
+    if (typeof this[accessor] === 'function') {
+      return this[accessor]();
+    }
     const val = this.attributes[k];
     const cast = this.casts[k];
+    if (cast && typeof cast === 'object' && typeof cast.get === 'function') {
+      return cast.get(val);
+    }
     if (cast === 'json' || cast === 'array') {
       try { return JSON.parse(val); } catch { return val; }
     }
     if (cast === 'date' && val != null) return val;
+    if (cast === 'boolean') return val == null ? val : Boolean(val);
+    if (cast === 'number' || cast === 'float') return val == null ? val : Number(val);
     return val;
   }
 
   setAttribute(k, v) {
+    const mutator = `set${this._toPascalCase(k)}Attribute`;
+    if (typeof this[mutator] === 'function') {
+      v = this[mutator](v);
+    }
     const cast = this.casts[k];
     let val = v;
-    if (cast === 'json' || cast === 'array') {
+    if (cast && typeof cast === 'object' && typeof cast.set === 'function') {
+      val = cast.set(v);
+    } else if (cast === 'json' || cast === 'array') {
       val = typeof v === 'string' ? v : JSON.stringify(v);
-    }
-    if (cast === 'date' && v instanceof Date) {
-      // Format date for database storage (YYYY-MM-DD HH:mm:ss)
+    } else if (cast === 'date' && v instanceof Date) {
       const year = v.getFullYear();
       const month = String(v.getMonth() + 1).padStart(2, '0');
       const day = String(v.getDate()).padStart(2, '0');
@@ -311,7 +404,6 @@ class Model {
       val = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
     }
     this.attributes[k] = val;
-    // Only mark as dirty if not during initialization and model exists
     if (!this._deferred && this.exists) {
       this._dirty.add(k);
     }
@@ -321,6 +413,10 @@ class Model {
   syncOriginal() {
     this.original = { ...this.attributes };
     this._dirty.clear();
+  }
+
+  getOriginal(key) {
+    return key !== undefined ? this.original[key] : { ...this.original };
   }
 
   _getCurrentTimestamp() {
@@ -379,9 +475,12 @@ class Model {
       if (await this.constructor.fireEvent('creating', this) === false) return false;
       if (await this.constructor.fireEvent('saving', this) === false) return false;
 
+      const createdAtCol = this.constructor.createdAt || 'created_at';
+      const updatedAtCol = this.constructor.updatedAt || 'updated_at';
+
       if (this.constructor.timestamps) {
         const now = this._getCurrentTimestamp();
-        this.setAttribute('created_at', now).setAttribute('updated_at', now);
+        this.setAttribute(createdAtCol, now).setAttribute(updatedAtCol, now);
       }
 
       // Generate UUID if needed
@@ -403,16 +502,19 @@ class Model {
       await this.constructor.fireEvent('saved', this);
       this.syncOriginal();
     } else if (this.isDirty()) {
+      const createdAtCol = this.constructor.createdAt || 'created_at';
+      const updatedAtCol = this.constructor.updatedAt || 'updated_at';
+
       // Updating existing record
       if (await this.constructor.fireEvent('updating', this) === false) return false;
       if (await this.constructor.fireEvent('saving', this) === false) return false;
 
       if (this.constructor.timestamps) {
-        this.setAttribute('updated_at', this._getCurrentTimestamp());
+        this.setAttribute(updatedAtCol, this._getCurrentTimestamp());
       }
 
       const updateData = this.getDirty();
-      delete updateData.created_at; // Never update created_at
+      delete updateData[createdAtCol]; // Never update created_at
 
       if (Object.keys(updateData).length > 0) {
         await this.constructor.query().where(this.constructor.primaryKey, this.getKey()).update(updateData);
@@ -448,8 +550,10 @@ class Model {
 
     await this.constructor.fireEvent('deleting', this);
 
+    const deletedAtCol = this.constructor.deletedAt || 'deleted_at';
+
     if (this.constructor.softDeletes) {
-      this.setAttribute('deleted_at', new Date());
+      this.setAttribute(deletedAtCol, new Date());
       await this.save();
     } else {
       await this.constructor.query().where(this.constructor.primaryKey, this.getKey()).delete();
@@ -461,13 +565,14 @@ class Model {
   }
 
   async restore() {
-    if (!this.constructor.softDeletes || !this.getAttribute('deleted_at')) {
+    const deletedAtCol = this.constructor.deletedAt || 'deleted_at';
+    if (!this.constructor.softDeletes || !this.getAttribute(deletedAtCol)) {
       return false;
     }
 
     await this.constructor.fireEvent('restoring', this);
 
-    this.setAttribute('deleted_at', null);
+    this.setAttribute(deletedAtCol, null);
     await this.save();
 
     await this.constructor.fireEvent('restored', this);
@@ -475,7 +580,8 @@ class Model {
   }
 
   trashed() {
-    return this.constructor.softDeletes && this.getAttribute('deleted_at') !== null;
+    const deletedAtCol = this.constructor.deletedAt || 'deleted_at';
+    return this.constructor.softDeletes && this.getAttribute(deletedAtCol) !== null;
   }
 
   only(keys) {
@@ -556,15 +662,18 @@ class Model {
   // relations - convert classes to strings to avoid circular dependencies
   hasOne(related, fk, lk) {
     const relatedName = this._resolveRelatedName(related);
-    return new HasOne(this, relatedName, fk || `${this.constructor.table}_id`, lk || this.constructor.primaryKey);
+    return new HasOne(this, relatedName, fk || this._selfFk(), lk || this.constructor.primaryKey);
   }
   hasMany(related, fk, lk) {
     const relatedName = this._resolveRelatedName(related);
-    return new HasMany(this, relatedName, fk || `${this.constructor.table}_id`, lk || this.constructor.primaryKey);
+    return new HasMany(this, relatedName, fk || this._selfFk(), lk || this.constructor.primaryKey);
   }
   belongsTo(related, fk, ok) {
     const relatedName = this._resolveRelatedName(related);
-    return new BelongsTo(this, relatedName, fk, ok || this.constructor.primaryKey);
+    const defaultFk = typeof relatedName === 'string'
+      ? relatedName.replace(/([A-Z])/g, (m, l, i) => i === 0 ? l.toLowerCase() : '_' + l.toLowerCase()) + '_id'
+      : undefined;
+    return new BelongsTo(this, relatedName, fk || defaultFk, ok || this.constructor.primaryKey);
   }
   belongsToMany(related, pivot, fp, rp, pk, rk) {
     const relatedName = this._resolveRelatedName(related);
@@ -590,6 +699,10 @@ class Model {
     return new HasManyThrough(this, relatedName, throughName, fk, sk, lk, slk);
   }
   morphTo(type, id) { return new MorphTo(this, type, id); }
+  morphOne(related, type, id) {
+    const relatedName = typeof related === 'function' && related.name ? related.name : related;
+    return new MorphOne(this, relatedName, type, id, this.constructor.name);
+  }
   morphMany(related, type, id) {
     const relatedName = typeof related === 'function' && related.name ? related.name : related;
     return new MorphMany(this, relatedName, type, id, this.constructor.name);

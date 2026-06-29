@@ -4,4 +4,4 @@ const require = createRequire(import.meta.url);
 
 const Relations = require('./Relation.js');
 
-export const { Relation, HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphMany } = Relations;
+export const { Relation, HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphOne, MorphMany } = Relations;

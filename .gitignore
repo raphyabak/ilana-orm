@@ -43,6 +43,9 @@ temp/
 .nuxt/
 .cache/
 
+# Claude Code
+CLAUDE.md
+
 # Misc
 .DS_Store
 *.pem

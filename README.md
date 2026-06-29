@@ -59,7 +59,7 @@ A fully-featured, Eloquent-style ORM for Node.js with automatic TypeScript suppo
 - Conditional queries with `when()`
 - Query scopes with automatic proxy support
 - JSON queries for PostgreSQL and MySQL
-- Date-specific queries (whereDate, whereMonth, whereYear)
+- Date-specific queries (whereDate, whereMonth, whereYear, whereDay, whereTime) across all databases
 
 ### 🗄️ **Database Management**
 
@@ -899,8 +899,10 @@ const {
 } = require('ilana-orm/orm/CustomCasts');
 
 class Product extends Model {
+  // Cast class instances are called automatically — get() on read, set() on write
   casts = {
     price: new MoneyCast(),
+    // ⚠️  EncryptedCast uses base64 only — replace with real encryption for production
     secret_data: new EncryptedCast('your-encryption-key'),
     metadata: new JsonCast(),
     tags: new ArrayCast(),
@@ -908,15 +910,10 @@ class Product extends Model {
   };
 }
 
-// Define custom cast
-class MoneyCast {
-  get(value) {
-    return value ? parseFloat(value) / 100 : null;
-  }
-
-  set(value) {
-    return value ? Math.round(value * 100) : null;
-  }
+// Custom cast — implement get(value) and set(value)
+class SlugCast {
+  get(v) { return v; }
+  set(v) { return v.toLowerCase().replace(/\s+/g, '-'); }
 }
 
 // Generate custom cast with CLI
@@ -966,13 +963,17 @@ class MoneyCast {
 
 ### Mutators and Accessors
 
+**Mutators** (`setXxxAttribute`) are called automatically whenever `setAttribute` runs — on direct assignment (`user.email = x`), via `fill()`, and via `update()`. They must return the transformed value.
+
+**Accessors** (`getXxxAttribute`) are called automatically on direct property access (`user.full_name`) as long as the key exists in `appends`, `fillable`, or the model's `attributes`. List keys in `appends` to include them in `toJSON()` output.
+
 **JavaScript:**
 ```javascript
 class User extends Model {
-  // Appended attributes (automatically included in JSON)
+  // Keys listed in appends appear in toJSON() and are accessible as properties
   appends = ['full_name', 'avatar_url'];
 
-  // Mutator - transform data when setting
+  // Mutator — called automatically on assignment / fill / update
   setPasswordAttribute(value) {
     return value ? bcrypt.hashSync(value, 10) : value;
   }
@@ -981,7 +982,7 @@ class User extends Model {
     return value ? value.toLowerCase().trim() : value;
   }
 
-  // Accessor - transform data when getting
+  // Accessor — called on direct property access and in toJSON()
   getFullNameAttribute() {
     return `${this.first_name} ${this.last_name}`;
   }
@@ -993,20 +994,22 @@ class User extends Model {
   }
 }
 
-// Usage
+// Direct property access triggers the accessor
 const user = await User.find(1);
-console.log(user.toJSON());
-// Output includes: { id: 1, first_name: 'John', last_name: 'Doe', full_name: 'John Doe', avatar_url: '/images/default-avatar.png' }
+console.log(user.full_name);   // 'John Doe'  — accessor called directly
+console.log(user.toJSON());    // includes full_name and avatar_url via appends
+
+// Mutator is called automatically
+user.email = 'USER@EXAMPLE.COM';
+console.log(user.email);       // 'user@example.com'  — mutator ran on assignment
 ````
 
 **TypeScript:**
 
 ```typescript
 class User extends Model {
-  // Appended attributes (automatically included in JSON)
   protected appends: string[] = ["full_name", "avatar_url"];
 
-  // Mutator - transform data when setting
   setPasswordAttribute(value: string) {
     return value ? bcrypt.hashSync(value, 10) : value;
   }
@@ -1015,7 +1018,6 @@ class User extends Model {
     return value ? value.toLowerCase().trim() : value;
   }
 
-  // Accessor - transform data when getting
   getFullNameAttribute(): string {
     return `${this.first_name} ${this.last_name}`;
   }
@@ -1027,10 +1029,9 @@ class User extends Model {
   }
 }
 
-// Usage
 const user = await User.find(1);
-console.log(user.toJSON());
-// Output includes: { id: 1, first_name: 'John', last_name: 'Doe', full_name: 'John Doe', avatar_url: '/images/default-avatar.png' }
+console.log(user.full_name);   // accessor called directly
+console.log(user.toJSON());    // includes appended accessors
 ```
 
 ````
@@ -1621,6 +1622,31 @@ const users = await User.query()
   })
   .get();
 
+// Relation existence (WHERE EXISTS subquery, with optional constraint)
+const usersWithPosts = await User.query().whereHas('posts').get();
+const activeAuthors = await User.query()
+  .whereHas('posts', (q) => q.where('published', true))
+  .get();
+const usersWithoutPosts = await User.query().whereDoesntHave('posts').get();
+
+// OR variants
+const users = await User.query()
+  .whereNull('verified_at')
+  .orWhereNull('deleted_at')
+  .orWhereNotNull('banned_at')
+  .orWhereIn('role', ['admin', 'mod'])
+  .orWhereRaw('score > ?', [100])
+  .get();
+
+// Range
+const minors = await User.query().whereNotBetween('age', [18, 120]).get();
+
+// Date helpers (DAY/TIME use MySQL-style raw SQL functions)
+const users = await User.query()
+  .whereDay('created_at', 15)
+  .whereTime('created_at', '>', '08:00:00')
+  .get();
+
 // Conditional queries
 const users = await User.query()
   .when(filters.role, (query, role) => {
@@ -1641,31 +1667,13 @@ const users = await User.query()
   .where("age", ">", 18)
   .get();
 
-// Where with operator
-const users = await User.query()
-  .where("age", ">=", 21)
-  .where("name", "like", "%john%")
-  .get();
-
-// Or where
-const users = await User.query()
-  .where("role", "admin")
-  .orWhere("role", "moderator")
-  .get();
-
-// Where in
+// Where in / null / between
 const users = await User.query()
   .whereIn("role", ["admin", "editor", "author"])
-  .get();
-
-// Where null/not null
-const users = await User.query()
   .whereNull("deleted_at")
-  .whereNotNull("email_verified_at")
+  .whereBetween("age", [18, 65])
+  .whereNotBetween("score", [0, 10])
   .get();
-
-// Where between
-const users = await User.query().whereBetween("age", [18, 65]).get();
 
 // JSON queries (database-specific)
 const users = await User.query()
@@ -1678,22 +1686,20 @@ const users = await User.query()
   .whereDate("created_at", "2023-12-01")
   .whereMonth("created_at", 12)
   .whereYear("created_at", 2023)
+  .whereDay("created_at", 15)
+  .whereTime("created_at", ">", "08:00:00")
   .get();
 
-// Exists queries
-const users = await User.query()
-  .whereExists((query) => {
-    query.select("*").from("posts").whereRaw("posts.user_id = users.id");
-  })
+// Relation existence
+const authors = await User.query()
+  .whereHas("posts", (q) => q.where("published", true))
   .get();
+const lurkers = await User.query().whereDoesntHave("posts").get();
 
 // Conditional queries
 const users = await User.query()
   .when(filters.role, (query, role) => {
     query.where("role", role);
-  })
-  .when(filters.search, (query, search) => {
-    query.where("name", "like", `%${search}%`);
   })
   .get();
 ```
@@ -1756,8 +1762,13 @@ const roleStats = await User.query()
 const users = await User.query()
   .orderBy('name')
   .orderBy('created_at', 'desc')
+  .latest()           // shorthand: orderBy('created_at', 'desc')
+  .oldest()           // shorthand: orderBy('created_at', 'asc')
+  .inRandomOrder()    // RAND() on MySQL, RANDOM() on PostgreSQL/SQLite
   .limit(10)
   .offset(20)
+  .take(10).skip(20)  // aliases for limit/offset
+  .forPage(3, 15)     // offset((3-1)*15).limit(15)
   .get();
 ````
 
@@ -1766,9 +1777,8 @@ const users = await User.query()
 ```typescript
 const users = await User.query()
   .orderBy("name")
-  .orderBy("created_at", "desc")
-  .limit(10)
-  .offset(20)
+  .inRandomOrder()
+  .forPage(2, 20)
   .get();
 ```
 
@@ -1927,13 +1937,26 @@ const roles = user.roles;
 roles.forEach((role) => {
   console.log(role.pivot.assigned_at);
 });
+
+// Pivot management
+const rel = user.roles();
+await rel.attach(roleId);
+await rel.attach(roleId, { assigned_at: new Date() }); // with pivot attributes
+await rel.detach(roleId);
+await rel.detach();           // detach all
+
+await rel.sync([1, 2, 3]);    // detach all, then attach these IDs
+await rel.sync({ 1: { assigned_at: new Date() }, 2: {} }); // with pivot attrs per ID
+
+await rel.toggle([1, 2]);     // attach if missing, detach if present
+
+await rel.updateExistingPivot(roleId, { assigned_at: new Date() }); // update pivot row
 ````
 
 **TypeScript:**
 
 ```typescript
 class User extends Model {
-  // User belongs to many roles
   roles() {
     return this.belongsToMany(Role, "user_roles", "user_id", "role_id")
       .withPivot("assigned_at", "assigned_by")
@@ -1941,73 +1964,75 @@ class User extends Model {
   }
 }
 
-class Role extends Model {
-  // Role belongs to many users
-  users() {
-    return this.belongsToMany(User, "user_roles", "role_id", "user_id");
-  }
-}
-
-// Usage
-const user = await User.with("roles").first();
-const roles = user.roles;
-
 // Access pivot data
-roles.forEach((role) => {
+const user = await User.with("roles").first();
+user.roles.forEach((role) => {
   console.log(role.pivot.assigned_at);
 });
+
+// Pivot management
+const rel = user.roles();
+await rel.sync([1, 2, 3]);
+await rel.toggle(roleId);
+await rel.updateExistingPivot(roleId, { assigned_at: new Date() });
 ```
 
 ````
 
 ### Polymorphic Relationships
 
+Use string names for related models to avoid circular import issues. Every model involved in a polymorphic relation must call `static { this.register(); }`.
+
 **JavaScript:**
 ```javascript
-class Comment extends Model {
-  // Comment can belong to Post or Video
-  commentable() {
-    return this.morphTo('commentable');
+// One-to-one polymorphic (morphOne / morphTo)
+class Image extends Model {
+  imageable() {
+    return this.morphTo('imageable'); // reads imageable_type, imageable_id
   }
+  static { this.register(); }
 }
 
 class Post extends Model {
-  // Post has many comments (polymorphic)
-  comments() {
-    return this.morphMany(Comment, 'commentable');
+  image() {
+    return this.morphOne('Image', 'imageable'); // stores imageable_type='Post', imageable_id=post.id
   }
+  static { this.register(); }
+}
+
+// One-to-many polymorphic (morphMany / morphTo)
+class Comment extends Model {
+  commentable() {
+    return this.morphTo('commentable');
+  }
+  static { this.register(); }
 }
 
 class Video extends Model {
-  // Video has many comments (polymorphic)
   comments() {
-    return this.morphMany(Comment, 'commentable');
+    return this.morphMany('Comment', 'commentable');
   }
+  static { this.register(); }
 }
 ````
 
 **TypeScript:**
 
 ```typescript
-class Comment extends Model {
-  // Comment can belong to Post or Video
-  commentable() {
-    return this.morphTo("commentable");
-  }
+class Image extends Model {
+  imageable() { return this.morphTo("imageable"); }
+  static { this.register(); }
 }
 
 class Post extends Model {
-  // Post has many comments (polymorphic)
-  comments() {
-    return this.morphMany(Comment, "commentable");
-  }
+  image() { return this.morphOne("Image", "imageable"); }
+  comments() { return this.morphMany("Comment", "commentable"); }
+  static { this.register(); }
 }
 
-class Video extends Model {
-  // Video has many comments (polymorphic)
-  comments() {
-    return this.morphMany(Comment, "commentable");
-  }
+class Comment extends Model {
+  commentable() { return this.morphTo("commentable"); }
+  static { this.register(); }
 }
 ```
 
@@ -3317,9 +3342,9 @@ export default defineFactory(User, () => ({
     email_verified_at: faker.date.past(),
     phone_verified_at: faker.date.past(),
   }))
-  .state("with_profile", () => ({}))
-  .afterCreating(async (user, evaluator) => {
-    if (evaluator.hasState("with_profile")) {
+  .state("with_profile", () => ({ _with_profile: true }))
+  .afterCreating(async (user) => {
+    if (user.attributes._with_profile) {
       await user.profile().create({
         bio: faker.lorem.paragraph(),
         website: faker.internet.url(),
@@ -4079,9 +4104,9 @@ class User extends Model {
   // Hide sensitive data
   protected hidden = ["password", "remember_token"];
 
-  // Use mutators for sensitive data
+  // Use mutators for sensitive data — mutators must return the transformed value
   setPasswordAttribute(value: string) {
-    this.attributes.password = bcrypt.hashSync(value, 10);
+    return bcrypt.hashSync(value, 10);
   }
 }
 
@@ -4255,8 +4280,8 @@ User.fireEvent(event, model); // Fire event
 // Scopes
 User.addGlobalScope(name, scope); // Add global scope
 User.removeGlobalScope(name); // Remove global scope
-User.withoutGlobalScope(name); // Query without scope
-User.withoutGlobalScope(name); // Query without scope
+User.withoutGlobalScope(name); // Query without one named scope
+User.withoutGlobalScopes(); // Query bypassing all global scopes
 
 // Factory
 User.factory(); // Get factory instance
@@ -4270,15 +4295,13 @@ User.register(); // Register in registry
 user.save(); // Save model
 user.update(attributes); // Update model
 user.delete(); // Delete model
-user.forceDelete(); // Force delete
-user.restore(); // Restore soft deleted
-user.forceDelete(); // Force delete
+user.forceDelete(); // Force delete (ignores softDeletes)
 user.restore(); // Restore soft deleted
 
 // Attributes
-user.fill(attributes); // Mass assign
-user.getAttribute(key); // Get attribute
-user.setAttribute(key, value); // Set attribute
+user.fill(attributes); // Mass assign (respects fillable/guarded)
+user.getAttribute(key); // Get attribute (calls accessor if defined)
+user.setAttribute(key, value); // Set attribute (calls mutator if defined)
 user.getKey(); // Get primary key value
 user.isFillable(key); // Check if fillable
 user.isDirty(key); // Check if dirty
@@ -4288,7 +4311,9 @@ user.syncOriginal(); // Sync original
 user.only(keys); // Get only specified attributes
 user.except(keys); // Get all except specified
 user.trashed(); // Check if soft deleted
-user.trashed(); // Check if soft deleted
+user.makeHidden(keys); // Add keys to hidden list
+user.makeVisible(keys); // Remove keys from hidden list
+user.append(keys); // Add accessor keys to appends
 
 // Relations
 user.load(...relations); // Lazy load relations
@@ -4314,8 +4339,12 @@ query.where(column, value); // Equals operator
 query.orWhere(column, operator, value);
 query.whereIn(column, values);
 query.whereNotIn(column, values);
+query.orWhereIn(column, values);
+query.orWhereNotIn(column, values);
 query.whereNull(column);
 query.whereNotNull(column);
+query.orWhereNull(column);
+query.orWhereNotNull(column);
 query.whereBetween(column, [min, max]);
 query.whereNotBetween(column, [min, max]);
 query.whereRaw(sql, bindings);
@@ -4357,6 +4386,7 @@ query.innerJoin(table, first, operator, second);
 
 ```javascript
 query.orderBy(column, direction);
+query.orderByRaw(sql);
 query.latest(column);
 query.oldest(column);
 query.inRandomOrder();
@@ -4438,10 +4468,10 @@ query.upsert(data, uniqueBy, update);
 ```javascript
 query.with(...relations);
 query.withConstraints(relation, callback);
-query.withCount(...relations);
-query.whereHas(relation, callback);
-query.whereDoesntHave(relation);
-query.has(relation, operator, count);
+query.withCount(...relations);    // adds relation_count subquery column per model
+query.whereHas(relation, callback); // WHERE EXISTS subquery
+query.doesntHave(relation);                    // WHERE NOT EXISTS subquery
+query.whereDoesntHave(relation, callback);     // WHERE NOT EXISTS with constraint
 ```
 
 #### Locking
@@ -4489,6 +4519,7 @@ this.hasManyThrough(
 
 // Polymorphic
 this.morphTo(morphType, morphId);
+this.morphOne(related, morphType, morphId);
 this.morphMany(related, morphType, morphId);
 ```
 

@@ -1,12 +1,17 @@
 import QueryBuilder from './QueryBuilder';
-import { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphMany } from './Relation';
+import { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphOne, MorphMany } from './Relation';
 
 export interface ModelAttributes {
   [key: string]: any;
 }
 
+export interface CastInstance {
+  get(value: any): any;
+  set(value: any): any;
+}
+
 export interface ModelCasts {
-  [key: string]: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'array' | 'object' | 'float';
+  [key: string]: 'string' | 'number' | 'boolean' | 'date' | 'json' | 'array' | 'object' | 'float' | CastInstance;
 }
 
 export interface ModelEvents {
@@ -26,7 +31,7 @@ export interface Observer {
   restored?(model: any): Promise<void> | void;
 }
 
-export default class Model {
+export default class Model<TAttributes extends ModelAttributes = ModelAttributes> {
   // Static properties
   protected static table: string;
   protected static connection?: string;
@@ -34,7 +39,10 @@ export default class Model {
   protected static keyType: 'number' | 'string';
   protected static incrementing: boolean;
   protected static timestamps: boolean;
+  protected static createdAt: string;
+  protected static updatedAt: string;
   protected static softDeletes: boolean;
+  protected static deletedAt: string;
   protected static fillable: string[];
   protected static guarded: string[];
   protected static casts: ModelCasts;
@@ -64,6 +72,7 @@ export default class Model {
   static resolveRelatedModel(related: string | typeof Model): typeof Model;
   static query(): QueryBuilder;
   static with(...relations: string[]): QueryBuilder;
+  static withCount(...relations: string[]): QueryBuilder;
   static on(connectionOrTrx: string | any): QueryBuilder;
   static all(): Promise<Model[]>;
   static find(id: any): Promise<Model | null>;
@@ -72,6 +81,10 @@ export default class Model {
   static firstOrFail(): Promise<Model>;
   static latest(column?: string): QueryBuilder;
   static oldest(column?: string): QueryBuilder;
+  static withTrashed(): QueryBuilder;
+  static onlyTrashed(): QueryBuilder;
+  static upsert(data: any[], uniqueBy: string[], update?: string[]): Promise<any>;
+  static withoutGlobalScopes(): QueryBuilder;
   static make(attributes?: ModelAttributes): Model;
   static create(attributes?: ModelAttributes): Promise<Model>;
   static generateUuid(): string;
@@ -111,10 +124,19 @@ export default class Model {
   // Instance methods
   getKey(): any;
   fill(attributes: ModelAttributes): this;
+  load(...relations: string[]): Promise<this>;
+  loadMissing(...relations: string[]): Promise<this>;
+  getRelation(key: string): any;
+  relationLoaded(key: string): boolean;
+  makeHidden(keys: string | string[]): this;
+  makeVisible(keys: string | string[]): this;
+  append(keys: string | string[]): this;
   isFillable(key: string): boolean;
   getAttribute(key: string): any;
   setAttribute(key: string, value: any): this;
   syncOriginal(): void;
+  getOriginal(key: string): any;
+  getOriginal(): ModelAttributes;
   save(): Promise<boolean>;
   update(attributes?: ModelAttributes): Promise<boolean>;
   isDirty(key?: string): boolean;
@@ -148,6 +170,7 @@ export default class Model {
     secondLocalKey?: string
   ): HasManyThrough;
   morphTo(typeColumn?: string, idColumn?: string): MorphTo;
+  morphOne(related: string | typeof Model, typeColumn?: string, idColumn?: string): MorphOne;
   morphMany(related: string | typeof Model, typeColumn?: string, idColumn?: string): MorphMany;
 
   // Protected methods
