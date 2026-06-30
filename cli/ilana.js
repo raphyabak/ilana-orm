@@ -823,13 +823,13 @@ function parseMigrationsForTable(tableName, migrationsDir) {
 
       // Match column definitions: table.string('col'), table.integer('col').nullable(), etc.
       const colRegex = new RegExp(
-        `${alias}\\.(\\w+)\\s*\\(\\s*['"]([^'"]+)['"](?:[^)]*)?\\)([^;\\n]*)`,
+        `${alias}\\.(\\w+)\\s*\\(\\s*['"]([^'"]+)['"]([^)]*)\\)([^;\\n]*)`,
         'g'
       );
 
       let colMatch;
       while ((colMatch = colRegex.exec(block)) !== null) {
-        const [, method, colName, rest] = colMatch;
+        const [, method, colName, args, rest] = colMatch;
         const knexDef = KNEX_COLUMN_MAP[method];
         if (!knexDef) continue;
 
@@ -837,7 +837,17 @@ function parseMigrationsForTable(tableName, migrationsDir) {
         const isNotNullable = /\.notNullable\(\)/.test(rest);
         const nullable = isNullable ? true : isNotNullable ? false : knexDef.nullable;
 
-        columns[colName] = { type: knexDef.type, nullable };
+        // For enum columns, extract the values array and build a union type
+        let tsType = knexDef.type;
+        if (method === 'enum') {
+          const valuesMatch = args.match(/\[([^\]]+)\]/);
+          if (valuesMatch) {
+            const values = [...valuesMatch[1].matchAll(/['"]([^'"]+)['"]/g)].map(m => `'${m[1]}'`);
+            if (values.length) tsType = values.join(' | ');
+          }
+        }
+
+        columns[colName] = { type: tsType, nullable };
       }
     }
   }
