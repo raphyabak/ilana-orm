@@ -749,6 +749,271 @@ module.exports = ${className}Cast;
 }
 
 
+// ─── Type Generator ───────────────────────────────────────────────────────────
+
+const CAST_TYPE_MAP = {
+  string: 'string', number: 'number', float: 'number',
+  boolean: 'boolean', date: 'Date',
+  json: 'Record<string, any>', object: 'Record<string, any>', array: 'any[]',
+};
+
+// Knex column builder method → { tsType, nullable default }
+const KNEX_COLUMN_MAP = {
+  increments: { type: 'number', nullable: false },
+  bigIncrements: { type: 'number', nullable: false },
+  integer: { type: 'number', nullable: true },
+  bigInteger: { type: 'number', nullable: true },
+  tinyint: { type: 'number', nullable: true },
+  smallint: { type: 'number', nullable: true },
+  mediumint: { type: 'number', nullable: true },
+  float: { type: 'number', nullable: true },
+  double: { type: 'number', nullable: true },
+  decimal: { type: 'number', nullable: true },
+  string: { type: 'string', nullable: true },
+  text: { type: 'string', nullable: true },
+  mediumtext: { type: 'string', nullable: true },
+  longtext: { type: 'string', nullable: true },
+  char: { type: 'string', nullable: true },
+  uuid: { type: 'string', nullable: true },
+  enum: { type: 'string', nullable: true },
+  set: { type: 'string', nullable: true },
+  boolean: { type: 'boolean', nullable: true },
+  date: { type: 'Date', nullable: true },
+  datetime: { type: 'Date', nullable: true },
+  timestamp: { type: 'Date', nullable: true },
+  time: { type: 'string', nullable: true },
+  json: { type: 'Record<string, any>', nullable: true },
+  jsonb: { type: 'Record<string, any>', nullable: true },
+  binary: { type: 'Buffer', nullable: true },
+};
+
+const RELATION_RETURN_MAP = {
+  hasOne: (r) => `${r} | null`,
+  hasMany: (r) => `${r}[]`,
+  belongsTo: (r) => `${r} | null`,
+  belongsToMany: (r) => `${r}[]`,
+  hasManyThrough: (r) => `${r}[]`,
+  morphTo: () => 'any',
+  morphOne: () => 'any | null',
+  morphMany: () => 'any[]',
+};
+
+// Parse migration files to extract column definitions for a given table name
+function parseMigrationsForTable(tableName, migrationsDir) {
+  if (!fs.existsSync(migrationsDir)) return {};
+
+  const columns = {};
+  const files = fs.readdirSync(migrationsDir)
+    .filter(f => f.endsWith('.js') || f.endsWith('.mjs') || f.endsWith('.ts'))
+    .sort(); // oldest first so later migrations can override
+
+  for (const file of files) {
+    const content = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+
+    // Find createTable / table blocks for this table
+    const tableBlockRegex = new RegExp(
+      `(?:createTable|table)\\s*\\(\\s*['"]${tableName}['"]\\s*,\\s*(?:async\\s*)?(?:\\(\\s*)?(\\w+)\\s*(?:\\))?\\s*(?:=>|{)[\\s\\S]*?(?=\\}\\s*\\)|\\}\\s*;)`,
+      'g'
+    );
+
+    let blockMatch;
+    while ((blockMatch = tableBlockRegex.exec(content)) !== null) {
+      const block = blockMatch[0];
+      const alias = blockMatch[1] || 'table';
+
+      // Match column definitions: table.string('col'), table.integer('col').nullable(), etc.
+      const colRegex = new RegExp(
+        `${alias}\\.(\\w+)\\s*\\(\\s*['"]([^'"]+)['"](?:[^)]*)?\\)([^;\\n]*)`,
+        'g'
+      );
+
+      let colMatch;
+      while ((colMatch = colRegex.exec(block)) !== null) {
+        const [, method, colName, rest] = colMatch;
+        const knexDef = KNEX_COLUMN_MAP[method];
+        if (!knexDef) continue;
+
+        const isNullable = /\.nullable\(\)/.test(rest);
+        const isNotNullable = /\.notNullable\(\)/.test(rest);
+        const nullable = isNullable ? true : isNotNullable ? false : knexDef.nullable;
+
+        columns[colName] = { type: knexDef.type, nullable };
+      }
+    }
+  }
+
+  return columns;
+}
+
+function parseModelFile(content, fileName) {
+  const classMatch = content.match(/class\s+(\w+)\s+extends/);
+  const className = classMatch?.[1] || toPascalCase(path.basename(fileName, path.extname(fileName)));
+
+  const tableMatch = content.match(/static\s+table\s*=\s*['"]([^'"]+)['"]/);
+  const table = tableMatch?.[1] || pluralize(toSnakeCase(className));
+
+  const fillableMatch = content.match(/(?:static\s+)?fillable\s*=\s*\[([^\]]*)\]/s);
+  const fillable = fillableMatch
+    ? [...fillableMatch[1].matchAll(/['"]([^'"]+)['"]/g)].map(m => m[1])
+    : [];
+
+  const castsMatch = content.match(/(?:static\s+)?casts\s*=\s*\{([^}]*)\}/s);
+  const casts = {};
+  if (castsMatch) {
+    for (const [, key, val] of castsMatch[1].matchAll(/['"]?(\w+)['"]?\s*:\s*['"](\w+)['"]/g)) {
+      casts[key] = val;
+    }
+  }
+
+  const pkMatch = content.match(/static\s+primaryKey\s*=\s*['"]([^'"]+)['"]/);
+  const primaryKey = pkMatch?.[1] || 'id';
+
+  const keyTypeMatch = content.match(/static\s+keyType\s*=\s*['"]([^'"]+)['"]/);
+  const keyType = (keyTypeMatch?.[1] === 'string') ? 'string' : 'number';
+
+  const timestampsMatch = content.match(/static\s+timestamps\s*=\s*(true|false)/);
+  const timestamps = timestampsMatch?.[1] !== 'false';
+
+  const softDeletesMatch = content.match(/static\s+softDeletes\s*=\s*(true|false)/);
+  const softDeletes = softDeletesMatch?.[1] === 'true';
+
+  const createdAtCol = content.match(/static\s+createdAt\s*=\s*['"]([^'"]+)['"]/)?.[1] || 'created_at';
+  const updatedAtCol = content.match(/static\s+updatedAt\s*=\s*['"]([^'"]+)['"]/)?.[1] || 'updated_at';
+  const deletedAtCol = content.match(/static\s+deletedAt\s*=\s*['"]([^'"]+)['"]/)?.[1] || 'deleted_at';
+
+  const relations = [];
+  const relRegex = /(\w+)\s*\(\s*\)\s*\{[\s\S]*?return\s+this\.(hasOne|hasMany|belongsTo|belongsToMany|hasManyThrough|morphTo|morphOne|morphMany)\s*\(\s*['"]?(\w*?)['"]?[,)]/g;
+  let m;
+  while ((m = relRegex.exec(content)) !== null) {
+    const [, methodName, relationType, relatedModel] = m;
+    if (methodName !== 'constructor') {
+      relations.push({ methodName, relationType, relatedModel: relatedModel || 'any' });
+    }
+  }
+
+  return { className, table, fillable, casts, primaryKey, keyType, timestamps, softDeletes, createdAtCol, updatedAtCol, deletedAtCol, relations };
+}
+
+function generateModelTypes(model, migrationColumns = {}) {
+  const { className, fillable, casts, primaryKey, keyType, timestamps, softDeletes, createdAtCol, updatedAtCol, deletedAtCol, relations } = model;
+
+  const relatedModels = [...new Set(
+    relations.map(r => r.relatedModel).filter(r => r && r !== 'any')
+  )];
+
+  const fields = [];
+
+  // Primary key — always non-nullable
+  fields.push(`  ${primaryKey}: ${keyType};`);
+
+  // All columns known from migrations, minus pk and timestamp cols (handled separately)
+  const tsColNames = [primaryKey, createdAtCol, updatedAtCol, deletedAtCol];
+  const allCols = new Set([...fillable, ...Object.keys(migrationColumns)]);
+
+  for (const col of allCols) {
+    if (tsColNames.includes(col)) continue;
+
+    // Cast takes priority over migration inference
+    if (casts[col]) {
+      const tsType = CAST_TYPE_MAP[casts[col]] || 'any';
+      fields.push(`  ${col}?: ${tsType};`);
+      continue;
+    }
+
+    const migCol = migrationColumns[col];
+    if (migCol) {
+      const tsType = migCol.nullable ? `${migCol.type} | null` : migCol.type;
+      fields.push(`  ${col}?: ${tsType};`);
+    } else {
+      fields.push(`  ${col}?: any;`);
+    }
+  }
+
+  if (timestamps) {
+    fields.push(`  ${createdAtCol}?: Date;`);
+    fields.push(`  ${updatedAtCol}?: Date;`);
+  }
+
+  if (softDeletes) {
+    fields.push(`  ${deletedAtCol}?: Date | null;`);
+  }
+
+  for (const { methodName, relationType, relatedModel } of relations) {
+    const returnType = RELATION_RETURN_MAP[relationType]?.(relatedModel) || 'any';
+    fields.push(`  ${methodName}?: ${returnType};`);
+  }
+
+  const relationMethods = relations.map(({ methodName, relationType }) => {
+    const map = { hasOne: 'HasOne', hasMany: 'HasMany', belongsTo: 'BelongsTo', belongsToMany: 'BelongsToMany', hasManyThrough: 'HasManyThrough', morphTo: 'MorphTo', morphOne: 'MorphOne', morphMany: 'MorphMany' };
+    return `  ${methodName}(): ${map[relationType] || 'any'};`;
+  });
+
+  const usedRelTypes = [...new Set(relations.map(r => {
+    const map = { hasOne: 'HasOne', hasMany: 'HasMany', belongsTo: 'BelongsTo', belongsToMany: 'BelongsToMany', hasManyThrough: 'HasManyThrough', morphTo: 'MorphTo', morphOne: 'MorphOne', morphMany: 'MorphMany' };
+    return map[r.relationType];
+  }).filter(Boolean))];
+
+  const coreImports = usedRelTypes.length
+    ? `import { Model, ${usedRelTypes.join(', ')} } from 'ilana-orm';`
+    : `import { Model } from 'ilana-orm';`;
+
+  return `// Auto-generated by \`npx ilana types\` — do not edit manually
+${coreImports}
+${relatedModels.length ? `import type { ${relatedModels.join(', ')} } from './index';\n` : ''}
+export interface ${className}Attributes {
+${fields.join('\n')}
+}
+
+declare class ${className} extends Model<${className}Attributes> {
+${relationMethods.length ? relationMethods.join('\n') + '\n' : ''}
+}
+
+export default ${className};
+`;
+}
+
+async function generateTypes(outDir) {
+  // Only meaningful in TypeScript projects
+  if (!isTypeScriptProject()) return;
+
+  const structure = getProjectStructure();
+  const modelsDir = path.join(process.cwd(), structure.modelsDir);
+  const migrationsDir = path.join(process.cwd(), structure.databaseDir, 'migrations');
+
+  if (!fs.existsSync(modelsDir)) return;
+
+  const modelFiles = fs.readdirSync(modelsDir)
+    .filter(f => f.endsWith('.js') || f.endsWith('.ts'))
+    .filter(f => !f.endsWith('.d.ts'));
+
+  if (modelFiles.length === 0) return;
+
+  const outputDir = path.join(process.cwd(), outDir);
+  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+
+  const classNames = [];
+
+  for (const file of modelFiles) {
+    const content = fs.readFileSync(path.join(modelsDir, file), 'utf8');
+    const model = parseModelFile(content, file);
+    const migrationColumns = parseMigrationsForTable(model.table, migrationsDir);
+    const dts = generateModelTypes(model, migrationColumns);
+    const outFile = path.join(outputDir, `${model.className}.d.ts`);
+    fs.writeFileSync(outFile, dts);
+    console.log(`  Generated: ${path.relative(process.cwd(), outFile)}`);
+    classNames.push(model.className);
+  }
+
+  const indexContent = classNames
+    .map(n => `export { default as ${n}, type ${n}Attributes } from './${n}';`)
+    .join('\n') + '\n';
+  fs.writeFileSync(path.join(outputDir, 'index.d.ts'), `// Auto-generated by \`npx ilana types\` — do not edit manually\n${indexContent}`);
+  console.log(`  Generated: ${path.relative(process.cwd(), path.join(outputDir, 'index.d.ts'))}`);
+  console.log(`\n✓ ${classNames.length} model type${classNames.length !== 1 ? 's' : ''} generated in ${outDir}/`);
+}
+
+// ─── Commands ─────────────────────────────────────────────────────────────────
+
 const commands = {
   async setup() {
     console.log('Setting up Ilana ORM...');
@@ -920,6 +1185,7 @@ DB_TIMEZONE=UTC
     }
 
     generateModel(name, options);
+    await generateTypes('types');
   },
 
   async migrate(...args) {
@@ -953,6 +1219,7 @@ DB_TIMEZONE=UTC
     }
 
     await runner.migrate(connection, onlyFile, toFile);
+    await generateTypes('types');
     process.exit(0);
   },
 
@@ -979,6 +1246,7 @@ DB_TIMEZONE=UTC
       await commands.seed();
     }
 
+    await generateTypes('types');
     process.exit(0);
   },
 
@@ -1043,6 +1311,7 @@ DB_TIMEZONE=UTC
     await initializeDatabase();
     const runner = new MigrationRunner();
     await runner.refresh(connection);
+    await generateTypes('types');
     process.exit(0);
   },
 
@@ -1166,6 +1435,20 @@ DB_TIMEZONE=UTC
     }
   },
 
+  async types(...args) {
+    if (!isTypeScriptProject()) {
+      console.log('Skipping type generation — not a TypeScript project.');
+      return;
+    }
+    let outDir = 'types';
+    for (const arg of args) {
+      if (arg.startsWith('--out=')) outDir = arg.split('=')[1];
+      else if (!arg.startsWith('--')) outDir = arg;
+    }
+    console.log('Generating model types...\n');
+    await generateTypes(outDir);
+  },
+
   async 'make:cast'(name) {
     if (!name) {
       console.error('Cast name is required');
@@ -1220,7 +1503,10 @@ Available commands:
   seed [name]                  Run database seeders
   db:seed [name]               Alias for seed command
   db:wipe [connection]         Drop all tables
-  
+
+  types [--out=dir]            Generate TypeScript types for all models
+                               Default output: types/
+
   help                         Show this help message
 
 Examples:
@@ -1239,6 +1525,8 @@ Examples:
   ilana migrate:fresh --seed
   ilana seed UserSeeder
   ilana db:wipe
+  ilana types
+  ilana types --out=src/types
 `);
   }
 };

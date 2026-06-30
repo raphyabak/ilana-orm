@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.17] - 2026-06-30
+
+### Added
+
+- **`npx ilana types`** — generates TypeScript `.d.ts` files for all models. Only runs in TypeScript projects (detected via `tsconfig.json`). Column types are inferred from migration files (`table.string()` → `string`, `table.boolean()` → `boolean`, `.nullable()` → `T | null`, etc.) and cross-referenced with model `casts` (casts take priority). Relation methods are typed with proper return types (`HasMany`, `BelongsTo`, etc.). A barrel `types/index.d.ts` re-exports all models. Output directory defaults to `types/`, customisable with `--out=<dir>`.
+- **Auto type generation** — types are regenerated automatically after `make:model`, `migrate`, `migrate:fresh`, and `migrate:refresh`. Silently skipped in non-TypeScript projects.
+
 ## [1.0.16] - 2026-06-29
 
 ### Fixed
