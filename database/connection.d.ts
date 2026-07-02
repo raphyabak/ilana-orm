@@ -2,6 +2,7 @@ import { Knex } from 'knex';
 
 export interface DatabaseConfig {
   default: string;
+  logging?: boolean;
   connections: {
     [name: string]: Knex.Config;
   };
@@ -27,6 +28,8 @@ export default class Database {
   private static _currentTransaction: Knex.Transaction | null;
 
   static configure(config: DatabaseConfig): void;
+  static enableLogging(): void;
+  static disableLogging(): void;
   static connection(name?: string): Knex;
   static getDefaultConnection(): string;
   static hasConnection(name: string): boolean;

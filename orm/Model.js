@@ -35,6 +35,9 @@ class Model {
   static globalScopes = new Map();
   static appends = [];
   static timezone = 'UTC';
+  static strictLoading = false;
+  static touches = [];
+  static enums = {};
 
   // --- Instance props ---
   attributes = {};
@@ -62,6 +65,25 @@ class Model {
       ? this.appends
       : this.constructor.appends;
 
+    // Wrap relations in a Proxy for strict loading enforcement
+    const modelClass = this.constructor;
+    this.relations = new Proxy({}, {
+      get(target, key) {
+        if (typeof key !== 'string') return target[key];
+        if (modelClass.strictLoading && !(key in target)) {
+          throw new Error(
+            `Strict loading violation: '${key}' was not eager loaded on ${modelClass.name}. ` +
+            `Use .with('${key}') in your query.`
+          );
+        }
+        return target[key];
+      },
+      set(target, key, value) { target[key] = value; return true; },
+      has(target, key) { return key in target; },
+      ownKeys(target) { return Object.keys(target); },
+      getOwnPropertyDescriptor(target, key) { return Object.getOwnPropertyDescriptor(target, key); },
+    });
+
     // defer attribute setting
     if (attrs && Object.keys(attrs).length) this._deferred = attrs;
 
@@ -79,6 +101,7 @@ class Model {
     this._deferred = null;
     // Recreate getters after initialization
     this._createAttributeGetters();
+    this._generateEnumHelpers();
   }
 
   _createAttributeGetters() {
@@ -102,6 +125,26 @@ class Model {
           enumerable: false,
           configurable: true
         });
+      }
+    }
+  }
+
+  _generateEnumHelpers() {
+    const enums = this.constructor.enums || {};
+    for (const [column, values] of Object.entries(enums)) {
+      for (const value of values) {
+        const pascal = value.charAt(0).toUpperCase() + value.slice(1);
+        const isMethod = `is${pascal}`;
+        const makeMethod = `make${pascal}`;
+        if (!this[isMethod]) {
+          this[isMethod] = () => this.getAttribute(column) === value;
+        }
+        if (!this[makeMethod]) {
+          this[makeMethod] = async () => {
+            this.setAttribute(column, value);
+            return this.save();
+          };
+        }
       }
     }
   }
@@ -210,6 +253,11 @@ class Model {
   }
 
   static async insert(data) { return this.query().insert(data); }
+  static async truncate() { return this.query().toKnex().truncate(); }
+  static async seed(count = 1) {
+    const { factory } = require('./Factory');
+    return factory(this).times(count).create();
+  }
   static async destroy(ids) {
     const idList = Array.isArray(ids) ? ids : [ids];
     if (this.softDeletes) {
@@ -525,7 +573,25 @@ class Model {
       this.syncOriginal();
     }
 
+    await this._touchRelations();
+
     return true;
+  }
+
+  async _touchRelations() {
+    const touches = this.constructor.touches || [];
+    for (const relName of touches) {
+      if (typeof this[relName] !== 'function') continue;
+      const rel = this[relName]();
+      if (!rel || rel.constructor.name !== 'BelongsTo') continue;
+      const parentClass = rel.getRelatedClass();
+      const parentId = this.getAttribute(rel.foreignKey);
+      if (!parentId) continue;
+      const col = parentClass.updatedAt || 'updated_at';
+      await parentClass.query()
+        .where(parentClass.primaryKey || 'id', parentId)
+        .update({ [col]: new Date() });
+    }
   }
 
   async update(attributes = {}) {
@@ -604,6 +670,20 @@ class Model {
     return result;
   }
 
+  async increment(column, amount = 1) {
+    await this.constructor.query().where(this.constructor.primaryKey, this.getKey()).increment(column, amount);
+    this.setAttribute(column, (this.getAttribute(column) || 0) + amount);
+    this.syncOriginal();
+    return this;
+  }
+
+  async decrement(column, amount = 1) {
+    await this.constructor.query().where(this.constructor.primaryKey, this.getKey()).decrement(column, amount);
+    this.setAttribute(column, (this.getAttribute(column) || 0) - amount);
+    this.syncOriginal();
+    return this;
+  }
+
   async forceDelete() {
     if (!this.exists) return false;
 
@@ -612,6 +692,16 @@ class Model {
     this.exists = false;
     await this.constructor.fireEvent('deleted', this);
     return true;
+  }
+
+  async fresh() {
+    if (!this.exists) return null;
+    return this.constructor.find(this.getKey());
+  }
+
+  is(other) {
+    if (!other || !(other instanceof this.constructor)) return false;
+    return this.getKey() === other.getKey();
   }
 
   // JSON serialization

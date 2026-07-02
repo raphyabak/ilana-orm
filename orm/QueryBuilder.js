@@ -1,6 +1,7 @@
 const Database = require('../database/connection');
 const Collection = require('./Collection');
 const ModelRegistry = require('./ModelRegistry');
+const { ModelNotFoundException } = require('./Errors');
 
 class QueryBuilder {
   constructor(tableName, modelClass, connectionName) {
@@ -609,18 +610,30 @@ class QueryBuilder {
 
   async findOrFail(id) {
     const result = await this.find(id);
-    if (!result) throw new Error(`Model not found with id: ${id}`);
+    if (!result) throw new ModelNotFoundException(this.modelClass?.name || 'Model', id);
     return result;
   }
 
   async firstOrFail() {
     const result = await this.first();
-    if (!result) throw new Error('No records found.');
+    if (!result) throw new ModelNotFoundException(this.modelClass?.name || 'Model');
     return result;
   }
 
   async doesntExist() {
     return !(await this.exists());
+  }
+
+  async sole() {
+    const results = await this._softQuery().limit(2);
+    if (results.length === 0) throw new ModelNotFoundException(this.modelClass?.name || 'Model');
+    if (results.length > 1) throw new Error(`${this.modelClass?.name || 'Model'}: sole() found more than one result.`);
+    return this.modelClass ? new this.modelClass(results[0]) : results[0];
+  }
+
+  tap(callback) {
+    callback(this);
+    return this;
   }
 
   async pluck(column) {
@@ -756,6 +769,14 @@ class QueryBuilder {
 
   async update(data) {
     return this.query.update(data);
+  }
+
+  async increment(column, amount = 1) {
+    return this.query.increment(column, amount);
+  }
+
+  async decrement(column, amount = 1) {
+    return this.query.decrement(column, amount);
   }
 
   async delete() {
@@ -1031,6 +1052,18 @@ class QueryBuilder {
   withoutTrashed() {
     this._withoutTrashed = true;
     return this;
+  }
+
+  async restore() {
+    if (!this.modelClass || !this.modelClass.softDeletes) {
+      throw new Error(`restore() requires softDeletes to be enabled on ${this.modelClass?.name || 'the model'}`);
+    }
+    const col = this.modelClass.deletedAt || 'deleted_at';
+    return this._softQuery().update({ [col]: null });
+  }
+
+  async values() {
+    return this._softQuery();
   }
 
   // Debug

@@ -1,9 +1,29 @@
 # Changelog
 
+## [1.0.18] - 2026-06-30
+
+### Added
+- **`ModelNotFoundException`** — named error class thrown by `findOrFail()` and `firstOrFail()` instead of a generic `Error`. Includes `model` (class name), `id`, and `toResponse()` → `{ status: 404, message }`. Import with `import { ModelNotFoundException } from 'ilana-orm'`.
+- **Query logging** — enable via `logging: true` in `ilana.config.js` or programmatically with `Database.enableLogging()` / `Database.disableLogging()`. Prints every SQL query with bound values and execution time. Generated config now includes `logging: false` with a comment.
+- **Enum union types in `npx ilana types`** — `table.enum('role', ['user', 'admin'])` now generates `'user' | 'admin'` instead of `string`.
+- **`Model.truncate()`** — deletes all rows in the model's table.
+- **`Model.seed(n)`** — creates `n` records using the model's registered factory. Requires `defineFactory` to be called first.
+- **`model.fresh()`** — re-fetches the model instance from the database and returns a new instance with up-to-date attributes.
+- **`model.is(other)`** — returns `true` if two model instances represent the same database record (same class and primary key).
+- **`query.sole()`** — like `firstOrFail()` but also throws if more than one record matches.
+- **`query.tap(callback)`** — runs a callback for side effects (e.g. logging, debugging) without breaking the query chain.
+- **`F()` expressions** — reference column values in updates without raw SQL: `update({ views: F('views').plus(1) })`. Supports `.plus()`, `.minus()`, `.times()`, `.divide()`. Import with `import { F } from 'ilana-orm'`.
+- **Bulk restore** — `Model.query().onlyTrashed().restore()` restores multiple soft-deleted records in one query.
+- **Enum helpers** — define `static enums = { role: ['user', 'admin'] }` on a model and get auto-generated `user.isAdmin()` / `user.makeAdmin()` instance methods.
+- **`static strictLoading`** — set `static strictLoading = true` on a model to throw when an unloaded relation is accessed without eager loading. Useful for catching N+1 in development.
+- **`static touches`** — set `static touches = ['post']` on a model to automatically update the parent's `updated_at` whenever the child saves.
+- **`query.values()`** — returns plain objects instead of model instances. Faster for read-heavy endpoints where you only need the raw data.
+- **`increment(column, amount?)` / `decrement(column, amount?)`** — on both model instances and the query builder. Instance methods update the local attribute and sync original without a full re-fetch.
+- **Factory relationship methods fully implemented** — `has(factory, relation)`, `for(relation, factory)`, and `hasAttached(factory, relation)` now correctly create and wire related models during `create()`. Previously these methods stored the relationship but never acted on it.
+
 ## [1.0.17] - 2026-06-30
 
 ### Added
-
 - **`npx ilana types`** — generates TypeScript `.d.ts` files for all models. Only runs in TypeScript projects (detected via `tsconfig.json`). Column types are inferred from migration files (`table.string()` → `string`, `table.boolean()` → `boolean`, `.nullable()` → `T | null`, etc.) and cross-referenced with model `casts` (casts take priority). Relation methods are typed with proper return types (`HasMany`, `BelongsTo`, etc.). A barrel `types/index.d.ts` re-exports all models. Output directory defaults to `types/`, customisable with `--out=<dir>`.
 - **Auto type generation** — types are regenerated automatically after `make:model`, `migrate`, `migrate:fresh`, and `migrate:refresh`. Silently skipped in non-TypeScript projects.
 

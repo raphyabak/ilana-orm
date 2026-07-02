@@ -50,6 +50,9 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   protected static globalScopes: Map<string, (query: QueryBuilder) => void>;
   protected static appends: string[];
   protected static timezone: string;
+  static strictLoading: boolean;
+  static touches: string[];
+  static enums: { [column: string]: string[] };
 
   // Instance properties
   attributes: ModelAttributes;
@@ -90,6 +93,8 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   static generateUuid(): string;
   static insert(data: ModelAttributes | ModelAttributes[]): Promise<any>;
   static destroy(ids: any | any[]): Promise<number>;
+  static truncate(): Promise<void>;
+  static seed(count?: number): Promise<any[]>;
   static firstOrCreate(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
   static firstOrNew(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
   static updateOrCreate(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
@@ -143,10 +148,14 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   getDirty(): ModelAttributes;
   delete(): Promise<boolean>;
   restore(): Promise<boolean>;
+  increment(column: string, amount?: number): Promise<this>;
+  decrement(column: string, amount?: number): Promise<this>;
   trashed(): boolean;
   only(keys: string[]): ModelAttributes;
   except(keys: string[]): ModelAttributes;
   forceDelete(): Promise<boolean>;
+  fresh(): Promise<this | null>;
+  is(other: Model): boolean;
   toJSON(): any;
 
   // Relationships

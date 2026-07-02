@@ -1,4 +1,4 @@
-const Database = require('ilana/database/connection').default;
+const Database = require('./database/connection');
 
 const config = {
   default: 'sqlite',

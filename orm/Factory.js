@@ -14,6 +14,9 @@ class Factory {
     this.count = 1;
     this.currentStates = [];
     this.relationships = new Map();
+    this._has = new Map();
+    this._for = new Map();
+    this._hasAttached = new Map();
     this._sequenceCount = 0;
     this.sequences = new Map();
   }
@@ -57,21 +60,28 @@ class Factory {
     return this;
   }
 
-  for(relation, factory) {
-    this.relationships.set(relation, factory);
+  for(relation, relFactory) {
+    this._for.set(relation, relFactory);
     return this;
   }
 
-  has(factory, relation) {
-    if (relation) {
-      this.relationships.set(relation, factory);
+  has(relFactory, relation) {
+    this._has.set(relation, relFactory);
+    return this;
+  }
+
+  hasAttached(relFactory, relation) {
+    this._hasAttached.set(relation, relFactory);
+    return this;
+  }
+
+  _getRelation(relationName) {
+    try {
+      const dummy = new this.model({});
+      return typeof dummy[relationName] === 'function' ? dummy[relationName]() : null;
+    } catch (_) {
+      return null;
     }
-    return this;
-  }
-
-  hasAttached(factory, relation) {
-    this.relationships.set(relation, factory);
-    return this;
   }
 
   sequence() {
@@ -173,16 +183,40 @@ class Factory {
   }
 
   async createOne(attributes = {}) {
-    const model = await this.makeOne(attributes);
-    
-    // Run beforeCreating callbacks
+    // Handle 'for' (belongsTo) — create parent first, inject FK into this model
+    const parentAttrs = {};
+    for (const [relationName, relFactory] of this._for) {
+      const parent = await relFactory.createOne({});
+      const rel = this._getRelation(relationName);
+      if (rel && rel.foreignKey) parentAttrs[rel.foreignKey] = parent.getKey();
+    }
+
+    const model = await this.makeOne({ ...parentAttrs, ...attributes });
+
     for (const callback of this._beforeCreatingCallbacks) {
       await callback(model);
     }
 
     await model.save();
 
-    // Run afterCreating callbacks
+    // Handle 'has' (hasMany) — create children with FK pointing to this model
+    for (const [relationName, relFactory] of this._has) {
+      const rel = this._getRelation(relationName);
+      if (rel && rel.foreignKey) {
+        await relFactory.create({ [rel.foreignKey]: model.getKey() });
+      }
+    }
+
+    // Handle 'hasAttached' (belongsToMany) — create and attach via pivot
+    for (const [relationName, relFactory] of this._hasAttached) {
+      const related = await relFactory.create({});
+      const relatedArr = Array.isArray(related) ? related : [related];
+      const rel = this._getRelation(relationName);
+      if (rel && typeof rel.attach === 'function') {
+        for (const r of relatedArr) await rel.attach(r.getKey());
+      }
+    }
+
     for (const callback of this._afterCreatingCallbacks) {
       await callback(model);
     }
@@ -354,6 +388,9 @@ if (typeof Model !== 'undefined') {
       newFactory.states = new Map(existingFactory.states);
       newFactory._afterCreatingCallbacks = [...existingFactory._afterCreatingCallbacks];
       newFactory._beforeCreatingCallbacks = [...existingFactory._beforeCreatingCallbacks];
+      newFactory._has = new Map(existingFactory._has);
+      newFactory._for = new Map(existingFactory._for);
+      newFactory._hasAttached = new Map(existingFactory._hasAttached);
       return newFactory;
     }
     throw new Error(`No factory defined for model: ${this.name}`);

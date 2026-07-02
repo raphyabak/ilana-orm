@@ -127,6 +127,54 @@ module.exports = User;  // CommonJS
 export default User;    // ESM
 ```
 
+### Column Expressions with F()
+
+`F()` generates a parameterized column-reference expression for use in updates. Import from `ilana-orm`.
+
+```js
+import { F } from 'ilana-orm';
+
+await Post.query().where('id', id).update({ views: F('views').plus(1) });
+await Cart.query().where('id', id).update({ total: F('total').minus(discount) });
+// Methods: .plus(n) .minus(n) .times(n) .divide(n)
+```
+
+### Enum helpers
+
+Define enum column values on the model; helpers are generated automatically on each instance.
+
+```js
+class User extends Model {
+  static enums = { role: ['user', 'moderator', 'admin'] };
+}
+
+user.isAdmin();        // user.role === 'admin'
+await user.makeAdmin(); // sets role + saves
+```
+
+### Strict loading
+
+Throw when an unloaded relation is accessed — catches N+1 at development time.
+
+```js
+class Post extends Model { static strictLoading = true; }
+
+const posts = await Post.all();
+posts[0].relations.comments; // throws — 'comments' was not eager loaded on Post
+```
+
+### Touch
+
+Bump the parent `updated_at` whenever the child saves.
+
+```js
+class Comment extends Model {
+  static touches = ['post'];
+  post() { return this.belongsTo('Post', 'post_id'); }
+}
+// comment.save() also runs: UPDATE posts SET updated_at = NOW() WHERE id = comment.post_id
+```
+
 ### Default table name
 
 If `static table` is not set, the table name is derived as `ClassName.toLowerCase() + 's'` (e.g. `User` → `users`).
@@ -204,6 +252,14 @@ await user.update({ name: 'Alice2' });    // fill + save
 user.name = 'Alice3';
 await user.save();                         // only sends dirty fields
 
+// Increment / decrement (updates DB + syncs local attribute)
+await user.increment('views');             // views + 1
+await user.increment('points', 10);        // points + 10
+await user.decrement('credits', 5);        // credits - 5
+
+// Bulk increment via query builder
+await User.query().where('role', 'admin').increment('credits', 100);
+
 // Dirty tracking
 user.isDirty();          // true if any field changed since last sync
 user.isDirty('name');    // check specific field
@@ -220,8 +276,19 @@ await User.onlyTrashed().get();
 await user.restore();
 user.trashed();            // true if deleted_at is set
 
+// Bulk restore
+await User.query().onlyTrashed().where('role', 'admin').restore();
+
 // Upsert
 await User.upsert([{ email: 'a@b.com', name: 'A' }], ['email'], ['name']);
+
+// Table helpers
+await User.truncate();     // delete all rows
+await User.seed(10);       // create 10 records via the registered factory
+
+// Instance helpers
+const fresh = await user.fresh();   // re-fetch from DB, returns new instance
+user.is(otherUser);                 // true if same class + same primary key
 
 // Lazy-load relations on an existing instance
 await user.load('posts');
@@ -366,6 +433,12 @@ await User.query().doesntExist()    // boolean
 .withTrashed()     // include soft-deleted records
 .onlyTrashed()     // only soft-deleted records
 .withoutTrashed()  // exclude soft-deleted (default when softDeletes=true)
+.restore()         // bulk-restore matched soft-deleted records
+
+// Strict fetching
+.sole()            // throws ModelNotFoundException if zero; throws Error if more than one
+.tap(callback)     // runs callback(this) for side effects without breaking chain
+.values()          // returns plain objects instead of model instances (no hydration)
 
 // Connection switching
 .on('analytics_db')
@@ -1003,11 +1076,49 @@ The `ModelCasts` type allows: `'string' | 'number' | 'boolean' | 'date' | 'json'
 
 ---
 
+## Debugging
+
+### Query logging
+
+Enable in `ilana.config.js` via `logging: true` (or `logging: process.env.NODE_ENV === 'development'`), or programmatically:
+
+```js
+import { Database } from 'ilana-orm';
+Database.enableLogging();  // turn on
+Database.disableLogging(); // turn off
+```
+
+Output: `[IlanaORM] select * from "users" where "role" = 'admin' — 3ms`
+
+Inspect without executing: `User.query().where('role', 'admin').toSql()`
+
+### ModelNotFoundException
+
+`findOrFail()`, `firstOrFail()`, and `sole()` throw `ModelNotFoundException`. Import from `ilana-orm`.
+
+```js
+import { ModelNotFoundException } from 'ilana-orm';
+
+try {
+  const user = await User.findOrFail(999);
+} catch (err) {
+  if (err instanceof ModelNotFoundException) {
+    err.message; // "User with id 999 not found"
+    err.model;   // "User"
+    err.id;      // 999
+    err.toResponse(); // { status: 404, message: "User with id 999 not found" }
+  }
+}
+```
+
+---
+
 ## Package exports map
 
 ```
 ilana-orm                        → { Model, QueryBuilder, Collection, Database, DB, SchemaBuilder,
                                       MigrationRunner, Seeder, Factory, defineFactory,
+                                      ModelNotFoundException, F,
                                       HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphOne, MorphMany,
                                       MoneyCast, EncryptedCast, JsonCast, ArrayCast, DateCast }
 ilana-orm/orm/Model              → Model (default)

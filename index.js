@@ -10,6 +10,8 @@ const Seeder = require('./orm/Seeder');
 const Factory = require('./orm/Factory');
 const Relation = require('./orm/Relation');
 const CustomCasts = require('./orm/CustomCasts');
+const { ModelNotFoundException } = require('./orm/Errors');
+const { F } = require('./orm/F');
 
 module.exports = {
   Model,
@@ -22,11 +24,13 @@ module.exports = {
   Seeder,
   Factory: Factory.Factory,
   defineFactory: Factory.defineFactory,
-  
+  ModelNotFoundException,
+  F,
+
   // Relationships
   MorphOne: Relation.MorphOne,
   ...Relation,
-  
+
   // Custom Casts
   ...CustomCasts
 };

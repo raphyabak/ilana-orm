@@ -447,6 +447,9 @@ module.exports = {
     extension: "ts",
   },
 
+  // SQL query logging — logs every query with bound values and execution time
+  logging: process.env.NODE_ENV === "development",
+
   // Debugging
   debug: process.env.NODE_ENV === "development",
 
@@ -1518,11 +1521,11 @@ const users = await User.all();
 
 // Find by primary key
 const user = await User.find(1);
-const user = await User.findOrFail(1); // Throws if not found
+const user = await User.findOrFail(1); // Throws ModelNotFoundException if not found
 
 // First record
 const user = await User.first();
-const user = await User.firstOrFail(); // Throws if not found
+const user = await User.firstOrFail(); // Throws ModelNotFoundException if not found
 
 // Create or find
 const user = await User.firstOrCreate(
@@ -1545,11 +1548,11 @@ const users = await User.all();
 
 // Find by primary key
 const user = await User.find(1);
-const user = await User.findOrFail(1); // Throws if not found
+const user = await User.findOrFail(1); // Throws ModelNotFoundException if not found
 
 // First record
 const user = await User.first();
-const user = await User.firstOrFail(); // Throws if not found
+const user = await User.firstOrFail(); // Throws ModelNotFoundException if not found
 
 // Create or find
 const user = await User.firstOrCreate(
@@ -4022,6 +4025,160 @@ const users = await User.query().on("reporting_db").get();
 
 ````
 
+## Debugging
+
+### Query Logging
+
+Enable SQL query logging in `ilana.config.js`:
+
+```javascript
+// ilana.config.js
+module.exports = {
+  default: 'mysql',
+  logging: process.env.NODE_ENV === 'development', // logs all queries in dev
+  connections: { ... }
+};
+```
+
+Or toggle programmatically:
+
+```javascript
+import { Database } from 'ilana-orm';
+
+Database.enableLogging();  // turn on
+Database.disableLogging(); // turn off
+```
+
+Output:
+```
+[IlanaORM] select * from "users" where "role" = 'admin' order by "created_at" desc limit 10 — 3ms
+[IlanaORM] select * from "posts" where "user_id" in (1, 2, 3) — 1ms
+```
+
+Inspect a query without executing it:
+
+```javascript
+const sql = User.query().where('role', 'admin').toSql();
+console.log(sql); // select * from "users" where "role" = 'admin'
+```
+
+### ModelNotFoundException
+
+`findOrFail()`, `firstOrFail()`, and `sole()` throw a `ModelNotFoundException` — a named error class you can catch specifically:
+
+```javascript
+import { ModelNotFoundException } from 'ilana-orm';
+
+// In a route
+app.get('/users/:id', async (req, res) => {
+  const user = await User.findOrFail(req.params.id);
+  res.json(user);
+});
+
+// Global Express error handler
+app.use((err, req, res, next) => {
+  if (err instanceof ModelNotFoundException) {
+    return res.status(404).json({ message: err.message });
+    // "User with id 99 not found"
+  }
+  res.status(500).json({ message: 'Server error' });
+});
+```
+
+Properties: `err.message`, `err.model` (class name), `err.id` (the id passed to `findOrFail`).
+
+Call `err.toResponse()` to get a plain `{ status: 404, message }` object suitable for any HTTP framework:
+
+```javascript
+app.get('/users/:id', async (req, res) => {
+  try {
+    return res.json(await User.findOrFail(req.params.id));
+  } catch (err) {
+    if (err instanceof ModelNotFoundException) {
+      const { status, message } = err.toResponse();
+      return res.status(status).json({ message });
+    }
+    throw err;
+  }
+});
+```
+
+### Column Expressions with `F()`
+
+Reference a column's current value in an update — no raw SQL, no race conditions, no need to fetch first:
+
+```javascript
+import { F } from 'ilana-orm';
+
+await Post.query().where('id', postId).update({ views: F('views').plus(1) });
+await Product.query().where('id', id).update({ stock: F('stock').minus(quantity) });
+```
+
+Available: `.plus(n)`, `.minus(n)`, `.times(n)`, `.divide(n)`.
+
+### Bulk Restore
+
+Restore many soft-deleted records at once via the query builder:
+
+```javascript
+await User.query().onlyTrashed().where('role', 'admin').restore();
+// UPDATE users SET deleted_at = NULL WHERE role = 'admin' AND deleted_at IS NOT NULL
+```
+
+### Enum Helpers
+
+Define possible values for enum columns and get auto-generated `isX()` / `makeX()` helpers on every instance:
+
+```javascript
+class User extends Model {
+  static enums = {
+    role: ['user', 'moderator', 'admin'],
+    status: ['active', 'suspended'],
+  };
+}
+
+const user = await User.find(1);
+user.isAdmin();        // true / false
+await user.makeAdmin(); // sets role = 'admin' and saves
+user.isSuspended();    // true / false
+```
+
+### Strict Loading
+
+Throw an error when an unloaded relation is accessed — catches N+1 problems at development time:
+
+```javascript
+class Post extends Model {
+  static strictLoading = true;
+}
+
+const posts = await Post.all();           // no .with('comments')
+posts[0].relations.comments;             // throws: 'comments' was not eager loaded on Post
+```
+
+### Touch
+
+Automatically update a parent's `updated_at` whenever the child saves:
+
+```javascript
+class Comment extends Model {
+  static touches = ['post'];
+
+  post() { return this.belongsTo('Post', 'post_id'); }
+}
+
+await comment.save(); // also bumps posts SET updated_at = NOW() WHERE id = comment.post_id
+```
+
+### Plain Object Results with `values()`
+
+Return raw plain objects instead of model instances — faster for read-heavy endpoints where you don't need model methods:
+
+```javascript
+const users = await User.query().select('id', 'name', 'email').values();
+// [{ id: 1, name: 'John', email: 'john@example.com' }, ...]
+```
+
 ## TypeScript Support
 
 ### Type-Safe Models
@@ -4249,8 +4406,10 @@ User.updateOrCreate(search, update); // Update or create
 User.firstOrNew(search, create); // Find or new instance
 User.upsert(data, unique, update); // Upsert records
 
-// Deletion methods
-User.destroy(ids); // Delete by IDs
+// Deletion & seeding
+User.destroy(ids); // Delete by IDs (soft-delete aware)
+User.truncate(); // Delete all rows in the table
+User.seed(n); // Create n records using the registered factory
 User.withTrashed(); // Include soft deleted
 User.onlyTrashed(); // Only soft deleted
 User.withoutTrashed(); // Exclude soft deleted
@@ -4297,6 +4456,8 @@ user.update(attributes); // Update model
 user.delete(); // Delete model
 user.forceDelete(); // Force delete (ignores softDeletes)
 user.restore(); // Restore soft deleted
+user.fresh(); // Re-fetch from DB and return new instance
+user.is(other); // Check if two instances are the same record
 
 // Attributes
 user.fill(attributes); // Mass assign (respects fillable/guarded)
@@ -4435,6 +4596,18 @@ query.findOrFail(id); // Find or throw
 query.pluck(column); // Get column values
 query.exists(); // Check existence
 query.doesntExist(); // Check non-existence
+query.sole(); // Get exactly one result — throws if zero or more than one
+query.tap(callback); // Run a callback for debugging without breaking the chain
+query.values(); // Return plain objects instead of model instances
+```
+
+#### Soft Deletes (QueryBuilder)
+
+```javascript
+query.withTrashed();   // include soft-deleted records
+query.onlyTrashed();   // only soft-deleted records
+query.withoutTrashed(); // exclude soft-deleted (default)
+query.restore();       // bulk-restore matched soft-deleted records
 ```
 
 #### Pagination

@@ -135,6 +135,8 @@ export default class QueryBuilder {
   pluck(column: string): Promise<any[]>;
   exists(): Promise<boolean>;
   doesntExist(): Promise<boolean>;
+  sole(): Promise<Model>;
+  tap(callback: (query: this) => void): this;
 
   // Pagination
   paginate(page?: number, perPage?: number): Promise<PaginationResult<Model>>;
@@ -150,6 +152,8 @@ export default class QueryBuilder {
   insert(data: any | any[]): Promise<any>;
   insertGetId(data: any): Promise<any>;
   update(data: any): Promise<number>;
+  increment(column: string, amount?: number): Promise<number>;
+  decrement(column: string, amount?: number): Promise<number>;
   delete(): Promise<number>;
   upsert(data: any[], uniqueBy: string[], update?: string[]): Promise<any>;
 
@@ -167,6 +171,10 @@ export default class QueryBuilder {
   withTrashed(): this;
   onlyTrashed(): this;
   withoutTrashed(): this;
+  restore(): Promise<number>;
+
+  // Plain object result (no model hydration)
+  values(): Promise<any[]>;
 
   // Debug
   toSql(): string;

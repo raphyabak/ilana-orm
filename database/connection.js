@@ -3,11 +3,33 @@ const knex = require('knex');
 class Database {
   static connections = new Map();
   static _currentTransaction = null;
+  static _logging = false;
+
+  static enableLogging() {
+    this._logging = true;
+  }
+
+  static disableLogging() {
+    this._logging = false;
+  }
+
+  static _log(sql, bindings, ms) {
+    if (!this._logging) return;
+    const bound = sql.replace(/\?/g, () => {
+      const val = bindings?.shift();
+      if (val === null || val === undefined) return 'NULL';
+      if (typeof val === 'string') return `'${val}'`;
+      return val;
+    });
+    const time = ms !== undefined ? ` \x1b[90m— ${ms}ms\x1b[0m` : '';
+    console.log(`\x1b[36m[IlanaORM]\x1b[0m ${bound}${time}`);
+  }
 
   static configure(config) {
     this.config = config;
     this.defaultConnection = config.default;
-    
+    if (config.logging) this._logging = true;
+
     // Initialize all configured connections
     for (const [name, connConfig] of Object.entries(config.connections)) {
       try {
@@ -21,6 +43,23 @@ class Database {
             directory: './seeds'
           }
         });
+
+        // Attach query logger
+        connection.on('query', (query) => {
+          this._queryStart = Date.now();
+          this._pendingQuery = query.sql;
+          this._pendingBindings = [...(query.bindings || [])];
+        });
+        connection.on('query-response', (response, query) => {
+          const ms = Date.now() - (this._queryStart || Date.now());
+          this._log(query.sql, [...(query.bindings || [])], ms);
+        });
+        connection.on('query-error', (error, query) => {
+          if (this._logging) {
+            console.error(`\x1b[36m[IlanaORM]\x1b[0m \x1b[31mERROR\x1b[0m ${query.sql}`);
+          }
+        });
+
         this.connections.set(name, connection);
       } catch (error) {
         if (error.code === 'MODULE_NOT_FOUND' && error.message.includes(connConfig.client)) {

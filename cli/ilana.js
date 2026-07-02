@@ -127,7 +127,10 @@ import Database from 'ilana-orm/database/connection.js';
 const config = {
   default: process.env.DB_CONNECTION || 'mysql',
   timezone: process.env.DB_TIMEZONE || 'UTC',
-  
+
+  // Set to true (or use process.env.NODE_ENV === 'development') to log all SQL queries
+  logging: false,
+
   connections: {
     sqlite: {
       client: 'sqlite3',
@@ -136,7 +139,7 @@ const config = {
       },
       useNullAsDefault: true
     },
-    
+
     mysql: {
       client: 'mysql2',
       connection: {
@@ -148,7 +151,7 @@ const config = {
         timezone: process.env.DB_TIMEZONE || 'UTC'
       }
     },
-    
+
     postgres: {
       client: 'pg',
       connection: {
@@ -160,12 +163,12 @@ const config = {
       }
     }
   },
-  
+
   migrations: {
     directory: './${structure.databaseDir}/migrations',
     tableName: 'migrations'
   },
-  
+
   seeds: {
     directory: './${structure.databaseDir}/seeds'
   }
@@ -186,7 +189,10 @@ const Database = require('ilana-orm/database/connection');
 const config = {
   default: process.env.DB_CONNECTION || 'mysql',
   timezone: process.env.DB_TIMEZONE || 'UTC',
-  
+
+  // Set to true (or use process.env.NODE_ENV === 'development') to log all SQL queries
+  logging: false,
+
   connections: {
     sqlite: {
       client: 'sqlite3',
@@ -195,7 +201,7 @@ const config = {
       },
       useNullAsDefault: true
     },
-    
+
     mysql: {
       client: 'mysql2',
       connection: {
@@ -207,7 +213,7 @@ const config = {
         timezone: process.env.DB_TIMEZONE || 'UTC'
       }
     },
-    
+
     postgres: {
       client: 'pg',
       connection: {
@@ -219,12 +225,12 @@ const config = {
       }
     }
   },
-  
+
   migrations: {
     directory: './${structure.databaseDir}/migrations',
     tableName: 'migrations'
   },
-  
+
   seeds: {
     directory: './${structure.databaseDir}/seeds'
   }

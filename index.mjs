@@ -15,6 +15,8 @@ export const {
   Seeder,
   Factory,
   defineFactory,
+  ModelNotFoundException,
+  F,
   Relation,
   HasOne,
   HasMany,
