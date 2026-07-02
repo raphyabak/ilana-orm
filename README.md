@@ -5,7 +5,19 @@
 
 **Ìlànà** (pronounced "ee-LAH-nah") - A Yoruba word meaning "pattern," "system," or "protocol."
 
-A fully-featured, Eloquent-style ORM for Node.js with automatic TypeScript support. IlanaORM provides complete feature parity with Laravel's Eloquent ORM, following established patterns and protocols for database interaction, modeling, querying, relationships, events, casting, migrations, and more.
+A fully-featured, Laravel Eloquent-style ORM for Node.js & TypeScript. If you know Eloquent, you already know IlanaORM — same API, same patterns, same conventions. MySQL, PostgreSQL, SQLite, Supabase, edge runtimes, and pgvector AI search out of the box.
+
+| Feature | IlanaORM | Prisma | Drizzle | TypeORM |
+|---|:---:|:---:|:---:|:---:|
+| Eloquent-identical API | ✅ | ❌ | ❌ | ❌ |
+| pgvector / AI search built-in | ✅ | ❌ | ❌ | ❌ |
+| Edge runtime (Cloudflare, Next.js) | ✅ | ⚠️ | ✅ | ❌ |
+| Supabase compatible | ✅ | ✅ | ✅ | ⚠️ |
+| ULID primary keys | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| Factories & seeders built-in | ✅ | ❌ | ❌ | ❌ |
+| Model events | ✅ | ⚠️ | ❌ | ✅ |
+| Soft deletes | ✅ | ❌ | ❌ | ✅ |
+| No code generation step | ✅ | ❌ | ✅ | ✅ |
 
 ## Table of Contents
 
