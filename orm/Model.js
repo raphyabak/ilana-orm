@@ -4,20 +4,22 @@ const { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, Morp
 const ModelRegistry = require('./ModelRegistry');
 const Database = require('../database/connection');
 
-// Auto-load configuration on first import
-(function autoLoadConfig() {
-  const fs = require('fs');
-  const path = require('path');
-  const configPathJs = path.join(process.cwd(), 'ilana.config.js');
-  const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
-  
-  if (fs.existsSync(configPathJs)) {
-    delete require.cache[configPathJs];
-    require(configPathJs);
-  } else if (fs.existsSync(configPathMjs)) {
-    // For ES modules, we'll handle this in the _getConfig method
-  }
-})();
+// Auto-load configuration on first import (skipped in edge runtime)
+if (typeof process !== 'undefined' && process.versions && process.versions.node && !global.__ILANA_EDGE__) {
+  (function autoLoadConfig() {
+    const fs = require('fs');
+    const path = require('path');
+    const configPathJs = path.join(process.cwd(), 'ilana.config.js');
+    const configPathMjs = path.join(process.cwd(), 'ilana.config.mjs');
+
+    if (fs.existsSync(configPathJs)) {
+      delete require.cache[configPathJs];
+      require(configPathJs);
+    } else if (fs.existsSync(configPathMjs)) {
+      // For ES modules, handled in _getConfig
+    }
+  })();
+}
 
 class Model {
   // --- Static defaults ---
@@ -38,6 +40,8 @@ class Model {
   static strictLoading = false;
   static touches = [];
   static enums = {};
+  static embeddingColumn = 'embedding';
+  static embeddingDimensions = 1536;
 
   // --- Instance props ---
   attributes = {};
@@ -225,6 +229,9 @@ class Model {
   static oldest(col) { return this.query().oldest(col || this.createdAt || 'created_at'); }
   static withTrashed() { return this.query().withTrashed(); }
   static onlyTrashed() { return this.query().onlyTrashed(); }
+  static withoutTrashed() { return this.query().withoutTrashed(); }
+  static async findOrFail(id) { return this.query().findOrFail(id); }
+  static async insertGetId(data) { return this.query().insertGetId(data); }
   static async upsert(data, uniqueBy, update) { return this.query().upsert(data, uniqueBy, update); }
   static withoutGlobalScopes() {
     return new QueryBuilder(this.getTableName(), this, this.getConnectionName());
@@ -233,8 +240,8 @@ class Model {
   static make(attrs = {}) {
     const inst = new this(attrs);
     inst._initialize();
-    if (!this.incrementing && this.keyType === 'string' && !inst.getKey()) {
-      inst.setAttribute(this.primaryKey, this.generateUuid());
+    if (!this.incrementing && (this.keyType === 'string' || this.keyType === 'uuid' || this.keyType === 'ulid') && !inst.getKey()) {
+      inst.setAttribute(this.primaryKey, this._generateKey());
     }
     return inst;
   }
@@ -252,8 +259,63 @@ class Model {
     });
   }
 
+  static generateUlid() {
+    const CHARS = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+    const now = Date.now();
+    let t = now;
+    let ts = '';
+    for (let i = 9; i >= 0; i--) {
+      ts = CHARS[t % 32] + ts;
+      t = Math.floor(t / 32);
+    }
+    let rand = '';
+    for (let i = 0; i < 16; i++) rand += CHARS[Math.floor(Math.random() * 32)];
+    return ts + rand;
+  }
+
+  static _generateKey() {
+    if (this.keyType === 'ulid') return this.generateUlid();
+    return this.generateUuid();
+  }
+
   static async insert(data) { return this.query().insert(data); }
   static async truncate() { return this.query().toKnex().truncate(); }
+
+  static _assertPgVector() {
+    const conn = Database.connection(this.connection);
+    const client = conn?.client?.config?.client || '';
+    if (!client.includes('pg')) {
+      throw new Error(
+        `${this.name}.search() and ${this.name}.nearestTo() require PostgreSQL with the pgvector extension. ` +
+        `Current database client is '${client || 'unknown'}'. ` +
+        `Vector search is not supported on MySQL or SQLite.`
+      );
+    }
+  }
+
+  static async nearestTo(vector, { limit = 10, column, distance = 'cosine' } = {}) {
+    this._assertPgVector();
+    const col = column || this.embeddingColumn;
+    const ops = { cosine: '<=>', l2: '<->', inner: '<#>' };
+    const op = ops[distance] || '<=>';
+    const vectorStr = `[${Array.from(vector).join(',')}]`;
+    return this.query()
+      .selectRaw(`*, (${col} ${op} ?) as distance`, [vectorStr])
+      .orderByRaw(`${col} ${op} ?`, [vectorStr])
+      .limit(limit)
+      .get();
+  }
+
+  static async search(text, { limit = 10, column, distance = 'cosine', provider } = {}) {
+    this._assertPgVector();
+    const embed = provider || this.embeddingProvider;
+    if (!embed) throw new Error(
+      `${this.name}.search() requires an embedding provider. ` +
+      `Pass { provider: async (text) => number[] } or set ${this.name}.embeddingProvider.`
+    );
+    const vector = await embed(text);
+    return this.nearestTo(vector, { limit, column, distance });
+  }
   static async seed(count = 1) {
     const { factory } = require('./Factory');
     return factory(this).times(count).create();
@@ -341,12 +403,38 @@ class Model {
   }
   // static async fireEvent(evt, mdl) { for (const h of this.events[evt] || []) if (await h(mdl) === false) return false; }
   static async fireEvent(evt, mdl) {
+    if (this._mutingEvents) return true;
     const ownEvents = Object.hasOwn(this, 'events') ? this.events : {};
     const handlers = ownEvents[evt] || [];
     for (const handler of handlers) {
       if (await handler(mdl) === false) return false;
     }
     return true;
+  }
+
+  static async withoutEvents(callback) {
+    this._mutingEvents = true;
+    try {
+      return await callback();
+    } finally {
+      this._mutingEvents = false;
+    }
+  }
+
+  static prunable() {
+    throw new Error(`${this.name} must implement a static prunable() method that returns a QueryBuilder.`);
+  }
+
+  static async prune() {
+    const query = this.prunable();
+    let pruned = 0;
+    await query.chunk(1000, async (models) => {
+      for (const model of models) {
+        await model.delete();
+        pruned++;
+      }
+    });
+    return pruned;
   }
 
   // --- Instance methods ---
@@ -531,9 +619,10 @@ class Model {
         this.setAttribute(createdAtCol, now).setAttribute(updatedAtCol, now);
       }
 
-      // Generate UUID if needed
-      if (!this.constructor.incrementing && this.constructor.keyType === 'string' && !this.getKey()) {
-        this.setAttribute(this.constructor.primaryKey, this.constructor.generateUuid());
+      // Generate UUID/ULID if needed
+      const kt = this.constructor.keyType;
+      if (!this.constructor.incrementing && (kt === 'string' || kt === 'uuid' || kt === 'ulid') && !this.getKey()) {
+        this.setAttribute(this.constructor.primaryKey, this.constructor._generateKey());
       }
 
       const qb = this.constructor.query();
@@ -702,6 +791,27 @@ class Model {
   is(other) {
     if (!other || !(other instanceof this.constructor)) return false;
     return this.getKey() === other.getKey();
+  }
+
+  isNot(other) {
+    return !this.is(other);
+  }
+
+  replicate(except = []) {
+    const exclude = new Set([
+      this.constructor.primaryKey,
+      ...(this.constructor.timestamps ? ['created_at', 'updated_at'] : []),
+      ...except,
+    ]);
+    const attrs = {};
+    for (const [k, v] of Object.entries(this.attributes)) {
+      if (!exclude.has(k)) attrs[k] = v;
+    }
+    const copy = new this.constructor(attrs);
+    copy._initialize();
+    copy.exists = false;
+    copy.wasRecentlyCreated = false;
+    return copy;
   }
 
   // JSON serialization

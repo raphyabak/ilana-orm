@@ -227,7 +227,32 @@ class QueryBuilder {
   }
 
   addSelect(...columns) {
-    this.query.column(...columns);
+    for (const col of columns) {
+      if (col && typeof col === 'object' && !Array.isArray(col)) {
+        // Subquery form: addSelect({ alias: (qb) => qb.from('table').select('col').where(...) })
+        for (const [alias, subFn] of Object.entries(col)) {
+          const knex = Database.connection(this.connectionName);
+          const subQuery = knex.queryBuilder();
+          const subQb = new QueryBuilder('', null, this.connectionName);
+          subQb.query = subQuery;
+          subFn(subQb);
+          this.query.column(knex.raw(`(${subQuery.toSQL().sql}) as "${alias}"`, subQuery.toSQL().bindings));
+        }
+      } else {
+        this.query.column(col);
+      }
+    }
+    return this;
+  }
+
+  orderBySubquery(callback, direction = 'asc') {
+    const knex = Database.connection(this.connectionName);
+    const subQuery = knex.queryBuilder();
+    const subQb = new QueryBuilder('', null, this.connectionName);
+    subQb.query = subQuery;
+    callback(subQb);
+    const { sql, bindings } = subQuery.toSQL();
+    this.query.orderByRaw(`(${sql}) ${direction === 'desc' ? 'desc' : 'asc'}`, bindings);
     return this;
   }
 
@@ -248,6 +273,23 @@ class QueryBuilder {
       callback(subQuery);
     });
     return this;
+  }
+
+  withPendingAttributes(attrs) {
+    this._pendingAttributes = { ...(this._pendingAttributes || {}), ...attrs };
+    return this;
+  }
+
+  async new(attrs = {}) {
+    const merged = { ...(this._pendingAttributes || {}), ...attrs };
+    const inst = new this.modelClass(merged);
+    inst._initialize();
+    return inst;
+  }
+
+  async create(attrs = {}) {
+    const merged = { ...(this._pendingAttributes || {}), ...attrs };
+    return this.modelClass.create(merged);
   }
 
   when(condition, callback, otherwise) {
@@ -547,6 +589,37 @@ class QueryBuilder {
 
   doesntHave(relation) {
     return this.whereDoesntHave(relation);
+  }
+
+  has(relation, operator = '>=', count = 1) {
+    if (!this.modelClass) return this;
+    try {
+      const dummy = this._makeDummy();
+      const relFn = this.modelClass.prototype[relation];
+      if (typeof relFn !== 'function') return this;
+      const rel = relFn.call(dummy);
+      const relatedClass = rel.getRelatedClass();
+      const relatedTable = relatedClass.getTableName();
+      const parentTable = this.modelClass.getTableName();
+      const isBelongsTo = rel.constructor.name === 'BelongsTo';
+      const joinCol = isBelongsTo
+        ? `${relatedTable}.${rel.localKey || relatedClass.getPrimaryKey()} = ${parentTable}.${rel.foreignKey}`
+        : `${relatedTable}.${rel.foreignKey} = ${parentTable}.${rel.localKey || this.modelClass.getPrimaryKey()}`;
+      const ops = ['=', '!=', '<', '<=', '>', '>='];
+      const safeOp = ops.includes(operator) ? operator : '>=';
+      const safeCount = parseInt(count, 10) || 1;
+      if (safeOp === '>=' && safeCount === 1) {
+        this.query.whereExists((builder) => {
+          builder.from(relatedTable).whereRaw(joinCol);
+        });
+      } else {
+        this.query.whereRaw(
+          `(select count(*) from ?? where ${joinCol}) ${safeOp} ?`,
+          [relatedTable, safeCount]
+        );
+      }
+    } catch (_) {}
+    return this;
   }
 
   _makeDummy() {

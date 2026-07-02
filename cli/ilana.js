@@ -283,90 +283,20 @@ function getModelTemplate(className, tableName) {
 
   if (isTypeScriptProject()) {
     return `import Model from 'ilana-orm/orm/Model';
-// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
-  protected static timestamps = true;
-  protected static softDeletes = false;
-  
-  // For UUID primary keys, uncomment:
-  // protected static keyType = 'string' as const;
-  // protected static incrementing = false;
-
-  protected fillable: string[] = [];
-  protected hidden: string[] = [];
-  protected appends: string[] = [];
-  protected casts = {
-    // Basic casts
-    // is_active: 'boolean' as const,
-    // metadata: 'json' as const,
-    // tags: 'array' as const,
-    
-    // Custom casts
-    // price: new MoneyCast(),
-    // secret: new EncryptedCast('your-key'),
-  };
-
-  // Define relationships here
-  // example() {
-  //   return this.hasMany(RelatedModel, 'foreign_key');
-  // }
-
-  // Define scopes here
-  // static scopeActive(query: any) {
-  //   query.where('is_active', true);
-  // }
-  
-  // Register for polymorphic relationships
-  // static {
-  //   this.register();
-  // }
+  protected static fillable: string[] = [];
 }
 `;
   }
 
   if (isESModule) {
     return `import Model from 'ilana-orm/orm/Model';
-// import { MoneyCast, EncryptedCast } from 'ilana-orm/orm/CustomCasts';
 
 class ${className} extends Model {
   static table = '${tableName}';
-  static timestamps = true;
-  static softDeletes = false;
-  
-  // For UUID primary keys, uncomment:
-  // static keyType = 'string';
-  // static incrementing = false;
-
-  fillable = [];
-  hidden = [];
-  appends = [];
-  casts = {
-    // Basic casts
-    // is_active: 'boolean',
-    // metadata: 'json',
-    // tags: 'array',
-    
-    // Custom casts
-    // price: new MoneyCast(),
-    // secret: new EncryptedCast('your-key'),
-  };
-
-  // Define relationships here
-  // example() {
-  //   return this.hasMany(RelatedModel, 'foreign_key');
-  // }
-
-  // Define scopes here
-  // static scopeActive(query) {
-  //   query.where('is_active', true);
-  // }
-  
-  // Register for polymorphic relationships
-  // static {
-  //   this.register();
-  // }
+  static fillable = [];
 }
 
 export default ${className};
@@ -374,45 +304,10 @@ export default ${className};
   }
 
   return `const Model = require('ilana-orm/orm/Model');
-// const { MoneyCast, EncryptedCast } = require('ilana-orm/orm/CustomCasts');
 
 class ${className} extends Model {
   static table = '${tableName}';
-  static timestamps = true;
-  static softDeletes = false;
-  
-  // For UUID primary keys, uncomment:
-  // static keyType = 'string';
-  // static incrementing = false;
-
-  fillable = [];
-  hidden = [];
-  appends = [];
-  casts = {
-    // Basic casts
-    // is_active: 'boolean',
-    // metadata: 'json',
-    // tags: 'array',
-    
-    // Custom casts
-    // price: new MoneyCast(),
-    // secret: new EncryptedCast('your-key'),
-  };
-
-  // Define relationships here
-  // example() {
-  //   return this.hasMany(RelatedModel, 'foreign_key');
-  // }
-
-  // Define scopes here
-  // static scopeActive(query) {
-  //   query.where('is_active', true);
-  // }
-  
-  // Register for polymorphic relationships
-  // static {
-  //   this.register();
-  // }
+  static fillable = [];
 }
 
 module.exports = ${className};
@@ -427,11 +322,7 @@ function getPivotModelTemplate(className, tableName) {
 
 export default class ${className} extends Model {
   protected static table = '${tableName}';
-  protected static timestamps = true;
-  
-  protected fillable: string[] = [];
-
-  // Define pivot relationships here
+  protected static fillable: string[] = [];
 }
 `;
   }
@@ -441,11 +332,7 @@ export default class ${className} extends Model {
 
 class ${className} extends Model {
   static table = '${tableName}';
-  static timestamps = true;
-  
-  fillable = [];
-
-  // Define pivot relationships here
+  static fillable = [];
 }
 
 export default ${className};
@@ -456,11 +343,7 @@ export default ${className};
 
 class ${className} extends Model {
   static table = '${tableName}';
-  static timestamps = true;
-  
-  fillable = [];
-
-  // Define pivot relationships here
+  static fillable = [];
 }
 
 module.exports = ${className};
@@ -477,29 +360,27 @@ function generateFactory(className) {
   }
 
   const modelPath = structure.hasSrc ? `../models/${className}.js` : `../../models/${className}.js`;
+  const isESModule = isESModuleProject();
   const template = isTypeScriptProject() ?
     `import { defineFactory } from 'ilana-orm/orm/Factory.js';
 import ${className} from '${modelPath}';
 
 export default defineFactory(${className}, (faker) => ({
-  // Define your factory attributes here
   // name: faker.person.fullName(),
-  // email: faker.internet.email(),
-}))
-.state('example', (faker) => ({
-  // Define state modifications here
+}));
+` : isESModule ?
+    `import { defineFactory } from 'ilana-orm/orm/Factory';
+import ${className} from '${modelPath}';
+
+export default defineFactory(${className}, (faker) => ({
+  // name: faker.person.fullName(),
 }));
 ` :
     `const { defineFactory } = require('ilana-orm/orm/Factory');
 const ${className} = require('${modelPath.replace('.js', '')}');
 
 module.exports = defineFactory(${className}, (faker) => ({
-  // Define your factory attributes here
   // name: faker.person.fullName(),
-  // email: faker.internet.email(),
-}))
-.state('example', (faker) => ({
-  // Define state modifications here
 }));
 `;
 
@@ -517,34 +398,38 @@ function generateSeeder(className) {
   }
 
   const modelPath = structure.hasSrc ? `../models/${className}.js` : `../../models/${className}.js`;
+  const isESModule = isESModuleProject();
   const template = isTypeScriptProject() ?
     `import Seeder from 'ilana-orm/orm/Seeder.js';
+import { factory } from 'ilana-orm/orm/Factory.js';
 import ${className} from '${modelPath}';
 import '../factories/${className}Factory.js';
 
 export default class ${className}Seeder extends Seeder {
   async run(): Promise<void> {
-    console.log('Seeding ${className.toLowerCase()}s...');
+    await factory(${className}).times(10).create();
+  }
+}
+` : isESModule ?
+    `import Seeder from 'ilana-orm/orm/Seeder';
+import { factory } from 'ilana-orm/orm/Factory';
+import ${className} from '${modelPath}';
+import '../factories/${className}Factory.js';
 
-    // Create sample data
-    await ${className}.factory().times(10).create();
-
-    console.log('${className}s seeded successfully');
+export default class ${className}Seeder extends Seeder {
+  async run() {
+    await factory(${className}).times(10).create();
   }
 }
 ` :
     `const Seeder = require('ilana-orm/orm/Seeder');
+const { factory } = require('ilana-orm/orm/Factory');
 const ${className} = require('${modelPath.replace('.js', '')}');
 require('../factories/${className}Factory');
 
 class ${className}Seeder extends Seeder {
   async run() {
-    console.log('Seeding ${className.toLowerCase()}s...');
-
-    // Create sample data
-    await ${className}.factory().times(10).create();
-
-    console.log('${className}s seeded successfully');
+    await factory(${className}).times(10).create();
   }
 }
 
@@ -1591,3 +1476,4 @@ if (require.main === module) {
 }
 
 module.exports = commands;
+module.exports._templates = { getModelTemplate, getPivotModelTemplate };

@@ -417,28 +417,20 @@ class MigrationRunner {
 
     if (isCreate || name.includes('create_')) {
       return isTS ?
-        `import type { SchemaBuilder } from 'ilana-orm';
-
-export default class ${className} {
-  // connection = 'mysql'; // Uncomment to use specific connection
-  
-  async up(schema: SchemaBuilder): Promise<void> {
+        `export default class ${className} {
+  async up(schema) {
     await schema.createTable('${table}', (table) => {
       table.increments('id');
       table.timestamps();
     });
   }
 
-  async down(schema: SchemaBuilder): Promise<void> {
+  async down(schema) {
     await schema.dropTable('${table}');
   }
 }
 ` :
-        `const { SchemaBuilder } = require('ilana-orm');
-
-class ${className} {
-  // connection = 'mysql'; // Uncomment to use specific connection
-  
+        `class ${className} {
   async up(schema) {
     await schema.createTable('${table}', (table) => {
       table.increments('id');
@@ -455,42 +447,30 @@ module.exports = ${className};
 `;
     } else if (tableName) {
       return isTS ?
-        `import type { SchemaBuilder } from 'ilana-orm';
-
-export default class ${className} {
-  // connection = 'mysql'; // Uncomment to use specific connection
-  
-  async up(schema: SchemaBuilder): Promise<void> {
-    await schema.table('${table}', (table) => {
-      // Add your column modifications here
-      // table.string('new_column').nullable();
-    });
-  }
-
-  async down(schema: SchemaBuilder): Promise<void> {
-    await schema.table('${table}', (table) => {
-      // Reverse your modifications here
-      // table.dropColumn('new_column');
-    });
-  }
-}
-` :
-        `const { SchemaBuilder } = require('ilana-orm');
-
-class ${className} {
-  // connection = 'mysql'; // Uncomment to use specific connection
-  
+        `export default class ${className} {
   async up(schema) {
     await schema.table('${table}', (table) => {
-      // Add your column modifications here
-      // table.string('new_column').nullable();
+      // table.string('column_name').nullable();
     });
   }
 
   async down(schema) {
     await schema.table('${table}', (table) => {
-      // Reverse your modifications here
-      // table.dropColumn('new_column');
+      // table.dropColumn('column_name');
+    });
+  }
+}
+` :
+        `class ${className} {
+  async up(schema) {
+    await schema.table('${table}', (table) => {
+      // table.string('column_name').nullable();
+    });
+  }
+
+  async down(schema) {
+    await schema.table('${table}', (table) => {
+      // table.dropColumn('column_name');
     });
   }
 }
@@ -500,31 +480,19 @@ module.exports = ${className};
     }
 
     return isTS ?
-      `import type { SchemaBuilder } from 'ilana-orm';
-
-export default class ${className} {
-  // connection = 'mysql'; // Uncomment to use specific connection
-  
-  async up(schema: SchemaBuilder): Promise<void> {
-    // Add your migration logic here
-  }
-
-  async down(schema: SchemaBuilder): Promise<void> {
-    // Add your rollback logic here
-  }
-}
-` :
-      `const { SchemaBuilder } = require('ilana-orm');
-
-class ${className} {
-  // connection = 'mysql'; // Uncomment to use specific connection
-  
+      `export default class ${className} {
   async up(schema) {
-    // Add your migration logic here
   }
 
   async down(schema) {
-    // Add your rollback logic here
+  }
+}
+` :
+      `class ${className} {
+  async up(schema) {
+  }
+
+  async down(schema) {
   }
 }
 

@@ -104,11 +104,20 @@ export default class QueryBuilder {
   // Selection
   select(...columns: any[]): this;
   addSelect(...columns: any[]): this;
+  addSelect(subqueries: { [alias: string]: (query: QueryBuilder) => void }): this;
   distinct(): this;
 
   // Raw queries
   whereRaw(sql: string, bindings?: any[]): this;
   selectRaw(sql: string, bindings?: any[]): this;
+
+  // Advanced subqueries
+  orderBySubquery(callback: (query: QueryBuilder) => void, direction?: 'asc' | 'desc'): this;
+
+  // Pending attributes (scope defaults)
+  withPendingAttributes(attributes: { [key: string]: any }): this;
+  new(attributes?: { [key: string]: any }): Promise<import('./Model').default>;
+  create(attributes?: { [key: string]: any }): Promise<import('./Model').default>;
 
   // Aggregates
   count(column?: string): Promise<number>;
@@ -125,6 +134,7 @@ export default class QueryBuilder {
   whereHas(relation: string, callback?: (query: QueryBuilder) => void): this;
   doesntHave(relation: string): this;
   whereDoesntHave(relation: string, callback?: (query: QueryBuilder) => void): this;
+  has(relation: string, operator?: '=' | '!=' | '<' | '<=' | '>' | '>=', count?: number): this;
 
   // Execution methods
   get(): Promise<Collection<Model>>;

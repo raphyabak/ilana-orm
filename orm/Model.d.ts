@@ -36,7 +36,7 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   protected static table: string;
   protected static connection?: string;
   protected static primaryKey: string;
-  protected static keyType: 'number' | 'string';
+  protected static keyType: 'number' | 'string' | 'uuid' | 'ulid';
   protected static incrementing: boolean;
   protected static timestamps: boolean;
   protected static createdAt: string;
@@ -53,6 +53,9 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   static strictLoading: boolean;
   static touches: string[];
   static enums: { [column: string]: string[] };
+  static embeddingColumn: string;
+  static embeddingDimensions: number;
+  static embeddingProvider?: (text: string) => Promise<number[]>;
 
   // Instance properties
   attributes: ModelAttributes;
@@ -86,15 +89,25 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   static oldest(column?: string): QueryBuilder;
   static withTrashed(): QueryBuilder;
   static onlyTrashed(): QueryBuilder;
+  static withoutTrashed(): QueryBuilder;
+  static findOrFail(id: number | string): Promise<Model>;
+  static insertGetId(data: { [key: string]: any }): Promise<number | string>;
   static upsert(data: any[], uniqueBy: string[], update?: string[]): Promise<any>;
   static withoutGlobalScopes(): QueryBuilder;
   static make(attributes?: ModelAttributes): Model;
   static create(attributes?: ModelAttributes): Promise<Model>;
   static generateUuid(): string;
+  static generateUlid(): string;
+  static _generateKey(): string;
+  static withoutEvents<T>(callback: () => Promise<T>): Promise<T>;
+  static prunable(): QueryBuilder;
+  static prune(): Promise<number>;
   static insert(data: ModelAttributes | ModelAttributes[]): Promise<any>;
   static destroy(ids: any | any[]): Promise<number>;
   static truncate(): Promise<void>;
   static seed(count?: number): Promise<any[]>;
+  static nearestTo(vector: number[], options?: { limit?: number; column?: string; distance?: 'cosine' | 'l2' | 'inner' }): Promise<Collection<any>>;
+  static search(text: string, options?: { limit?: number; column?: string; distance?: 'cosine' | 'l2' | 'inner'; provider?: (text: string) => Promise<number[]> }): Promise<Collection<any>>;
   static firstOrCreate(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
   static firstOrNew(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
   static updateOrCreate(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
@@ -156,6 +169,8 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   forceDelete(): Promise<boolean>;
   fresh(): Promise<this | null>;
   is(other: Model): boolean;
+  isNot(other: Model | null | undefined): boolean;
+  replicate(except?: string[]): this;
   toJSON(): any;
 
   // Relationships

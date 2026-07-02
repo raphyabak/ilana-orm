@@ -24,6 +24,7 @@ A fully-featured, Eloquent-style ORM for Node.js with automatic TypeScript suppo
 - [Schema Builder](#schema-builder)
 - [Transactions](#transactions)
 - [Advanced Features](#advanced-features)
+- [Supabase](#supabase)
 - [Complete API Reference](#complete-api-reference)
 - [TypeScript Support](#typescript-support)
 - [Performance & Best Practices](#performance--best-practices)
@@ -793,47 +794,33 @@ export default class User extends Model {
 
 ### UUID Primary Keys
 
-**JavaScript:**
 ```javascript
 class User extends Model {
   static table = 'users';
-  static keyType = 'string';
+  static keyType = 'uuid';
   static incrementing = false;
 }
 
-module.exports = User;
-
-// Usage
-const user = await User.create({
-  name: 'John Doe',
-  email: 'john@example.com',
-});
-// user.id will be a generated UUID
-````
-
-**TypeScript:**
-
-```typescript
-export default class User extends Model {
-  protected static table = "users";
-  protected static keyType = "string" as const;
-  protected static incrementing = false;
-
-  // Attributes
-  id!: string; // UUID primary key
-  name!: string;
-  email!: string;
-}
-
-// Usage
-const user = await User.create({
-  name: "John Doe",
-  email: "john@example.com",
-});
-// user.id will be a generated UUID
+const user = await User.create({ name: 'John Doe', email: 'john@example.com' });
+// user.id → "550e8400-e29b-41d4-a716-446655440000"
 ```
 
-````
+### ULID Primary Keys
+
+ULIDs are 26-character sortable identifiers — URL-safe, lexicographically ordered by creation time:
+
+```javascript
+class Order extends Model {
+  static table = 'orders';
+  static keyType = 'ulid';
+  static incrementing = false;
+}
+
+const order = await Order.create({ total: 49.99 });
+// order.id → "01J3X7KQZB8YTPNMCHW4RSVFGE"
+```
+
+Use `char(26)` for the column type in migrations.
 
 ### Attribute Casting
 
@@ -4179,6 +4166,68 @@ const users = await User.query().select('id', 'name', 'email').values();
 // [{ id: 1, name: 'John', email: 'john@example.com' }, ...]
 ```
 
+### Vector / Semantic Search (pgvector)
+
+Semantic search matches by **meaning**, not exact keywords. It works by converting text into a list of numbers called an **embedding** using an AI embedding model, storing those numbers in the database, and finding records whose embeddings are mathematically closest to a search query.
+
+**Requires:** PostgreSQL + pgvector extension. An external embedding model (OpenAI, Cohere, Ollama, etc.) is also required — IlanaORM does not include one. Does **not** work with MySQL or SQLite.
+
+```javascript
+// 1. Enable the extension in a migration
+await schema.enableVectorExtension();
+
+// 2. Add a vector column
+await schema.table('posts', table => {
+  table.specificType('embedding', 'vector(1536)'); // dimensions must match your model
+});
+
+// 3. Configure the model
+class Post extends Model {
+  static embeddingColumn = 'embedding';
+  static embeddingProvider = async (text) => {
+    // Must return Promise<number[]> — plug in any embedding API
+    const res = await openai.embeddings.create({ model: 'text-embedding-ada-002', input: text });
+    return res.data[0].embedding;
+  };
+}
+
+// 4. Store embeddings when creating records
+await Post.create({
+  title: 'JavaScript tips',
+  body: '...',
+  embedding: JSON.stringify(await Post.embeddingProvider('JavaScript tips ...')),
+});
+
+// 5. Search — converts text to vector, queries by similarity
+const posts = await Post.search('javascript performance tips', { limit: 5 });
+
+// Or search by a raw vector you already have
+const posts = await Post.nearestTo(myVector, { distance: 'cosine', limit: 10 });
+
+// Each result has a .distance attribute (lower = more similar)
+posts.forEach(p => console.log(p.title, p.distance));
+```
+
+Distance options: `'cosine'` (default, `<=>`), `'l2'` (`<->`), `'inner'` (`<#>`).
+
+### Edge Runtime
+
+Import from `ilana-orm/edge` to skip the Node.js `fs`/`path` auto-loader. Required for Cloudflare Workers, Deno, Bun, and Next.js edge routes:
+
+```javascript
+import { Model, Database } from 'ilana-orm/edge';
+
+// Must configure explicitly — no auto-loading of ilana.config.js
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: { client: 'pg', connection: { connectionString: process.env.DATABASE_URL } },
+  },
+});
+
+const users = await User.all();
+```
+
 ## TypeScript Support
 
 ### Type-Safe Models
@@ -4230,6 +4279,32 @@ const user = await User.factory().create({
   email: "john@example.com",
 });
 ```
+
+## Supabase
+
+Supabase is a hosted PostgreSQL platform. IlanaORM works with it out of the box using the `pg` driver — no special setup required.
+
+```javascript
+// ilana.config.js
+const { Database } = require('ilana-orm');
+
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: {
+        connectionString: process.env.DATABASE_URL, // from Supabase dashboard
+        ssl: { rejectUnauthorized: false },         // required for Supabase
+      },
+    },
+  },
+});
+```
+
+All features work including migrations, relations, soft deletes, and vector search (Supabase has pgvector built in).
+
+For serverless or edge deployments with Supabase, use the [connection pooler URL](https://supabase.com/docs/guides/database/connecting-to-postgres) (port `6543`) and the `ilana-orm/edge` entry point for Cloudflare Workers or Next.js edge routes.
 
 ## Performance & Best Practices
 
@@ -4410,9 +4485,13 @@ User.upsert(data, unique, update); // Upsert records
 User.destroy(ids); // Delete by IDs (soft-delete aware)
 User.truncate(); // Delete all rows in the table
 User.seed(n); // Create n records using the registered factory
+User.prune(); // Delete all records matching static prunable()
 User.withTrashed(); // Include soft deleted
 User.onlyTrashed(); // Only soft deleted
 User.withoutTrashed(); // Exclude soft deleted
+
+// Events
+User.withoutEvents(async () => { ... }); // Run without firing events
 
 // Configuration
 User.getTableName(); // Get table name
@@ -4421,6 +4500,7 @@ User.getKeyType(); // Get key type
 User.getIncrementing(); // Get incrementing flag
 User.getConnectionName(); // Get connection name
 User.generateUuid(); // Generate UUID
+User.generateUlid(); // Generate ULID
 
 // Events
 User.creating(callback); // Before creating
@@ -4458,6 +4538,8 @@ user.forceDelete(); // Force delete (ignores softDeletes)
 user.restore(); // Restore soft deleted
 user.fresh(); // Re-fetch from DB and return new instance
 user.is(other); // Check if two instances are the same record
+user.isNot(other); // Inverse of is()
+user.replicate(except?); // Clone as unsaved record (excludes PK + timestamps)
 
 // Attributes
 user.fill(attributes); // Mass assign (respects fillable/guarded)
@@ -4642,9 +4724,10 @@ query.upsert(data, uniqueBy, update);
 query.with(...relations);
 query.withConstraints(relation, callback);
 query.withCount(...relations);    // adds relation_count subquery column per model
-query.whereHas(relation, callback); // WHERE EXISTS subquery
-query.doesntHave(relation);                    // WHERE NOT EXISTS subquery
-query.whereDoesntHave(relation, callback);     // WHERE NOT EXISTS with constraint
+query.has(relation, operator?, count?); // WHERE EXISTS, or count-based (e.g. has('posts', '>', 5))
+query.whereHas(relation, callback);    // WHERE EXISTS with constraint subquery
+query.doesntHave(relation);            // WHERE NOT EXISTS subquery
+query.whereDoesntHave(relation, callback); // WHERE NOT EXISTS with constraint
 ```
 
 #### Locking

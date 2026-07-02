@@ -189,10 +189,23 @@ If `static table` is not set, the table name is derived as `ClassName.toLowerCas
 
 ```js
 class Post extends Model {
-  static keyType = 'string';
+  static keyType = 'uuid';
   static incrementing = false;
-  // UUID is generated automatically on create
+  // UUID generated automatically on create
 }
+```
+
+### ULID primary keys
+
+ULIDs are 26-character sortable IDs — lexicographically ordered by creation time, URL-safe:
+
+```js
+class Order extends Model {
+  static keyType = 'ulid';
+  static incrementing = false;
+  // ULID generated automatically on create, e.g. "01J3X7KQZB8YTPNMCHW4RSVFGE"
+}
+// Use char(26) in migrations
 ```
 
 ### Custom cast objects
@@ -364,9 +377,10 @@ const users = await User.query()
 // Subquery
 .whereExists(q => q.select('*').from('posts').whereRaw('posts.user_id = users.id'))
 
-// Filter by relation existence (WHERE EXISTS subquery)
-.whereHas('posts')
-.whereHas('posts', q => q.where('published', true))
+// Filter by relation existence
+.has('posts')                                              // WHERE EXISTS (>= 1 related)
+.has('posts', '>', 5)                                      // count-based: more than 5 posts
+.whereHas('posts', q => q.where('published', true))        // WHERE EXISTS with constraint
 .doesntHave('posts')                                       // WHERE NOT EXISTS, no constraint
 .whereDoesntHave('posts', q => q.where('published', true)) // WHERE NOT EXISTS with constraint
 
@@ -622,6 +636,69 @@ class UserObserver {
 User.observe(UserObserver);          // pass class — instantiated internally
 User.observe(new UserObserver());    // or pass instance
 User.observe({ created: async u => { /* inline */ } }); // or plain object
+```
+
+### Muting events
+
+```js
+// All events suppressed inside the callback
+await User.withoutEvents(async () => {
+  await User.create({ name: 'Seeded User' });
+});
+// Events fire normally again after
+```
+
+---
+
+## Comparing and Replicating Models
+
+```js
+// Compare — same class + same PK
+a.is(b);    // true/false
+a.isNot(b); // inverse
+
+// Clone as unsaved record (PK + timestamps excluded)
+const copy = original.replicate();          // all attrs except id/created_at/updated_at
+const copy = original.replicate(['slug']);   // also exclude slug
+copy.title = 'Copy of ' + original.title;
+await copy.save(); // inserts new row
+```
+
+---
+
+## Pruning Models
+
+Define `prunable()` to return a query for records that should be deleted, then call `prune()`:
+
+```js
+class ActivityLog extends Model {
+  static prunable() {
+    return this.query().where('created_at', '<', new Date(Date.now() - 90 * 86400_000));
+  }
+}
+
+const deleted = await ActivityLog.prune(); // deletes in chunks of 1000
+```
+
+---
+
+## Pending Attributes on Scopes
+
+Scopes can set default column values on models created through them:
+
+```js
+static scopePublished(query) {
+  return query
+    .where('status', 'published')
+    .withPendingAttributes({ status: 'published' });
+}
+
+const post = await Post.query().published().new({ title: 'Hello' });
+// post.status === 'published' — set by scope
+await post.save();
+
+// Or insert directly
+const post = await Post.query().published().create({ title: 'Hello' });
 ```
 
 ---
@@ -1076,6 +1153,84 @@ The `ModelCasts` type allows: `'string' | 'number' | 'boolean' | 'date' | 'json'
 
 ---
 
+## Vector Search (pgvector)
+
+Semantic search by meaning, not keywords. Requires PostgreSQL + pgvector extension + an external embedding model (OpenAI, Cohere, Ollama, etc.) — IlanaORM does not include one. Does NOT work with MySQL or SQLite.
+
+Enable the extension with `schema.enableVectorExtension()`.
+
+```js
+// Migration
+await schema.createTable('posts', table => {
+  table.specificType('embedding', 'vector(1536)');
+});
+
+// Model config
+class Post extends Model {
+  static embeddingColumn = 'embedding';      // default: 'embedding'
+  static embeddingDimensions = 1536;
+  static embeddingProvider = async (text) => myEmbedder(text); // returns number[]
+}
+
+// Search by text (calls embeddingProvider internally)
+const posts = await Post.search('query text', { limit: 10, distance: 'cosine' });
+
+// Search by raw vector
+const posts = await Post.nearestTo(vector, { limit: 10, distance: 'l2' });
+
+// Each result has a .distance attribute
+// Distance options: 'cosine' (<=>, default), 'l2' (<->), 'inner' (<#>)
+```
+
+---
+
+## Supabase
+
+Supabase is hosted PostgreSQL. IlanaORM connects directly via the `pg` driver. The only Supabase-specific requirement is the `ssl` flag.
+
+```js
+// ilana.config.js
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: {
+      client: 'pg',
+      connection: {
+        connectionString: process.env.DATABASE_URL, // from Supabase dashboard
+        ssl: { rejectUnauthorized: false },
+      },
+    },
+  },
+});
+```
+
+All IlanaORM features work including migrations, relations, soft deletes, and vector search (pgvector is built into Supabase). For serverless/edge, use the connection pooler URL (port 6543) and `ilana-orm/edge`.
+
+---
+
+## Edge Runtime
+
+Import from `ilana-orm/edge` to skip the Node.js fs/path auto-loader. Works in Cloudflare Workers, Deno, Bun, Next.js edge routes.
+
+```js
+import { Model, Database } from 'ilana-orm/edge';
+
+// Must call configure() explicitly — no ilana.config.js auto-loading
+Database.configure({
+  default: 'pg',
+  connections: {
+    pg: { client: 'pg', connection: { connectionString: process.env.DATABASE_URL } },
+  },
+});
+
+// All model/query features work normally
+const users = await User.all();
+```
+
+Migrations and the CLI are Node.js-only and cannot run on edge. Run them in CI and connect the edge worker to the same DB.
+
+---
+
 ## Debugging
 
 ### Query logging
@@ -1116,6 +1271,7 @@ try {
 ## Package exports map
 
 ```
+ilana-orm/edge                   → same exports as ilana-orm but skips auto-loading ilana.config.js (for edge runtimes)
 ilana-orm                        → { Model, QueryBuilder, Collection, Database, DB, SchemaBuilder,
                                       MigrationRunner, Seeder, Factory, defineFactory,
                                       ModelNotFoundException, F,

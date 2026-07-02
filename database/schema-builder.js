@@ -207,6 +207,10 @@ class SchemaBuilder {
     return Promise.resolve();
   }
 
+  enableVectorExtension() {
+    return this.knex.raw('CREATE EXTENSION IF NOT EXISTS vector');
+  }
+
   createEnum(name, values) {
     if (this.knex.client.config.client === 'pg') {
       return this.knex.raw(`CREATE TYPE ${name} AS ENUM (${values.map(v => `'${v}'`).join(', ')})`);

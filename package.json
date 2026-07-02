@@ -1,6 +1,6 @@
 {
   "name": "ilana-orm",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "A fully-featured, Eloquent-style ORM for Node.js with TypeScript support",
   "main": "index.js",
   "types": "index.d.ts",
@@ -8,6 +8,11 @@
     ".": {
       "import": "./index.mjs",
       "require": "./index.js",
+      "types": "./index.d.ts"
+    },
+    "./edge": {
+      "import": "./index.edge.mjs",
+      "require": "./index.edge.js",
       "types": "./index.d.ts"
     },
     "./orm/Model": {
