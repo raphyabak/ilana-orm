@@ -1,4 +1,5 @@
-import QueryBuilder from './QueryBuilder';
+import QueryBuilder, { PaginationResult, SimplePaginationResult, CursorPaginationResult } from './QueryBuilder';
+import Collection from './Collection';
 import { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphOne, MorphMany } from './Relation';
 
 export interface ModelAttributes {
@@ -111,6 +112,113 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   static firstOrCreate(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
   static firstOrNew(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
   static updateOrCreate(attributes: ModelAttributes, values?: ModelAttributes): Promise<Model>;
+
+  // QueryBuilder methods forwarded from Model.query() — at runtime, any
+  // QueryBuilder method not already declared above is proxied automatically
+  // from Model.<method>() to Model.query().<method>() (see Model.js), so this
+  // list exists purely to give TypeScript users type information for it.
+  static where(column: string, value: any): QueryBuilder;
+  static where(column: string, operator: string, value: any): QueryBuilder;
+  static orWhere(column: string, value: any): QueryBuilder;
+  static orWhere(column: string, operator: string, value: any): QueryBuilder;
+  static whereIn(column: string, values: any[]): QueryBuilder;
+  static whereNotIn(column: string, values: any[]): QueryBuilder;
+  static whereNull(column: string): QueryBuilder;
+  static whereNotNull(column: string): QueryBuilder;
+  static whereBetween(column: string, range: [any, any]): QueryBuilder;
+  static whereNotBetween(column: string, range: [any, any]): QueryBuilder;
+  static whereJsonContains(column: string, value: any): QueryBuilder;
+  static whereJsonLength(column: string, operator: string, value: number): QueryBuilder;
+  static whereDate(column: string, value: string): QueryBuilder;
+  static whereDate(column: string, operator: string, value: string): QueryBuilder;
+  static whereMonth(column: string, month: number): QueryBuilder;
+  static whereYear(column: string, year: number): QueryBuilder;
+  static whereDay(column: string, operatorOrValue: any, value?: any): QueryBuilder;
+  static whereTime(column: string, operatorOrValue: any, value?: any): QueryBuilder;
+  static whereRaw(sql: string, bindings?: any[]): QueryBuilder;
+  static orWhereNull(column: string): QueryBuilder;
+  static orWhereNotNull(column: string): QueryBuilder;
+  static orWhereIn(column: string, values: any[]): QueryBuilder;
+  static orWhereNotIn(column: string, values: any[]): QueryBuilder;
+  static orWhereRaw(sql: string, bindings?: any[]): QueryBuilder;
+  static whereExists(callback: (query: QueryBuilder) => void): QueryBuilder;
+  static whereNotExists(callback: (query: QueryBuilder) => void): QueryBuilder;
+  static when<T>(condition: T, callback: (query: QueryBuilder, condition: T) => void, otherwise?: (query: QueryBuilder) => void): QueryBuilder;
+  static unless<T>(condition: T, callback: (query: QueryBuilder) => void, otherwise?: (query: QueryBuilder, condition: T) => void): QueryBuilder;
+
+  static join(table: string, first: string, operator: string, second: string): QueryBuilder;
+  static leftJoin(table: string, first: string, operator: string, second: string): QueryBuilder;
+  static rightJoin(table: string, first: string, operator: string, second: string): QueryBuilder;
+  static innerJoin(table: string, first: string, operator: string, second: string): QueryBuilder;
+  static crossJoin(table: string): QueryBuilder;
+
+  static orderBy(column: string, direction?: 'asc' | 'desc'): QueryBuilder;
+  static orderByRaw(sql: string): QueryBuilder;
+  static orderBySubquery(callback: (query: QueryBuilder) => void, direction?: 'asc' | 'desc'): QueryBuilder;
+  static inRandomOrder(): QueryBuilder;
+  static limit(count: number): QueryBuilder;
+  static offset(count: number): QueryBuilder;
+  static take(count: number): QueryBuilder;
+  static skip(count: number): QueryBuilder;
+  static from(table: string): QueryBuilder;
+  static forPage(page: number, perPage?: number): QueryBuilder;
+
+  static groupBy(...columns: string[]): QueryBuilder;
+  static having(column: string, operator: string, value: any): QueryBuilder;
+  static having(rawSql: string): QueryBuilder;
+  static havingRaw(sql: string, bindings?: any[]): QueryBuilder;
+
+  static lockForUpdate(): QueryBuilder;
+  static sharedLock(): QueryBuilder;
+  static skipLocked(): QueryBuilder;
+  static noWait(): QueryBuilder;
+
+  static select(...columns: any[]): QueryBuilder;
+  static addSelect(...columns: any[]): QueryBuilder;
+  static addSelect(subqueries: { [alias: string]: (query: QueryBuilder) => void }): QueryBuilder;
+  static distinct(): QueryBuilder;
+  static selectRaw(sql: string, bindings?: any[]): QueryBuilder;
+
+  static withPendingAttributes(attributes: { [key: string]: any }): QueryBuilder;
+  static withConstraints(relation: string, callback: (query: QueryBuilder) => void): QueryBuilder;
+  static withConstraints(relations: { [key: string]: (query: QueryBuilder) => void }): QueryBuilder;
+  static whereHas(relation: string, callback?: (query: QueryBuilder) => void): QueryBuilder;
+  static doesntHave(relation: string): QueryBuilder;
+  static whereDoesntHave(relation: string, callback?: (query: QueryBuilder) => void): QueryBuilder;
+  static has(relation: string, operator?: '=' | '!=' | '<' | '<=' | '>' | '>=', count?: number): QueryBuilder;
+
+  static count(column?: string): Promise<number>;
+  static sum(column: string): Promise<number>;
+  static avg(column: string): Promise<number>;
+  static min(column: string): Promise<any>;
+  static max(column: string): Promise<any>;
+
+  static pluck(column: string): Promise<any[]>;
+  static exists(): Promise<boolean>;
+  static doesntExist(): Promise<boolean>;
+  static sole(): Promise<Model>;
+  static tap(callback: (query: QueryBuilder) => void): QueryBuilder;
+  static get(): Promise<Collection<Model>>;
+
+  static paginate(page?: number, perPage?: number): Promise<PaginationResult<Model>>;
+  static simplePaginate(page?: number, perPage?: number): Promise<SimplePaginationResult<Model>>;
+  static cursorPaginate(perPage?: number, cursor?: string, column?: string, direction?: 'asc' | 'desc'): Promise<CursorPaginationResult<Model>>;
+
+  static chunk(size: number, callback: (models: Collection<Model>) => Promise<void>): Promise<void>;
+  static cursor(chunkSize?: number): AsyncGenerator<Model, void, unknown>;
+  static lazy(chunkSize?: number): AsyncGenerator<Model, void, unknown>;
+
+  static update(data: any): Promise<number>;
+  static increment(column: string, amount?: number): Promise<number>;
+  static decrement(column: string, amount?: number): Promise<number>;
+  static delete(): Promise<number>;
+  static restore(): Promise<number>;
+
+  static clone(): QueryBuilder;
+  static toKnex(): any;
+  static toSql(): string;
+  static values(): Promise<any[]>;
+  static new(attributes?: { [key: string]: any }): Promise<Model>;
 
   // Scopes
   static addGlobalScope(name: string, scope: (query: QueryBuilder) => void): void;

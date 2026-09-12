@@ -909,4 +909,21 @@ class Model {
   }
 }
 
-module.exports = Model;
+// Any QueryBuilder instance method not already forwarded above (e.g. where(),
+// orderBy(), whereIn(), paginate()...) is auto-forwarded from Model.<method>()
+// to Model.query().<method>(), so new QueryBuilder methods don't need a
+// matching static added here to be callable directly on a Model subclass.
+const ModelStaticHandler = {
+  get(target, prop, receiver) {
+    if (typeof prop === 'symbol' || prop in target) {
+      return Reflect.get(target, prop, receiver);
+    }
+    const qbMethod = QueryBuilder.prototype[prop];
+    if (typeof prop === 'string' && prop[0] !== '_' && typeof qbMethod === 'function') {
+      return (...args) => receiver.query()[prop](...args);
+    }
+    return Reflect.get(target, prop, receiver);
+  }
+};
+
+module.exports = new Proxy(Model, ModelStaticHandler);
