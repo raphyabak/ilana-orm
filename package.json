@@ -1,6 +1,6 @@
 {
   "name": "ilana-orm",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "A fully-featured, Laravel Eloquent-style ORM for Node.js & TypeScript. MySQL, PostgreSQL, SQLite, Supabase, edge runtimes, pgvector AI search.",
   "main": "index.js",
   "types": "index.d.ts",

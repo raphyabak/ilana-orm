@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.20] - 2026-09-13
 
 ### Added
 - **`Model#forceFill(attributes)`** — mass-assigns attributes bypassing `fillable`/`guarded` entirely, for trusted/programmatic data (factories, seeders, internal code). Mirrors Eloquent's `forceFill()`.
