@@ -251,6 +251,7 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   // Instance methods
   getKey(): any;
   fill(attributes: ModelAttributes): this;
+  forceFill(attributes: ModelAttributes): this;
   load(...relations: string[]): Promise<this>;
   loadMissing(...relations: string[]): Promise<this>;
   getRelation(key: string): any;

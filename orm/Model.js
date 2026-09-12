@@ -3,6 +3,7 @@ const QueryBuilder = require('./QueryBuilder');
 const { HasOne, HasMany, BelongsTo, BelongsToMany, HasManyThrough, MorphTo, MorphMany, MorphOne } = require('./Relation');
 const ModelRegistry = require('./ModelRegistry');
 const Database = require('../database/connection');
+const { MassAssignmentException } = require('./Errors');
 
 // Auto-load configuration on first import (skipped in edge runtime)
 if (typeof process !== 'undefined' && process.versions && process.versions.node && !global.__ILANA_EDGE__) {
@@ -461,8 +462,30 @@ class Model {
   getKey() { return this.attributes[this.constructor.primaryKey]; }
 
   fill(attrs) {
+    const keys = Object.keys(attrs);
+    let appliedAny = false;
     for (const [k, v] of Object.entries(attrs)) {
       if (!this.isFillable(k)) continue;
+      this.setAttribute(k, v);
+      appliedAny = true;
+    }
+    // Every key was rejected by fillable/guarded — near-certainly a forgotten
+    // `static fillable = [...]` rather than an intentional no-op, since a
+    // real "pass extra harmless keys" call still gets at least one column
+    // through. Silently returning success here previously left update()
+    // looking like it persisted a change when nothing was ever written.
+    if (keys.length > 0 && !appliedAny) {
+      throw new MassAssignmentException(this.constructor.name, keys);
+    }
+    return this;
+  }
+
+  // Sets attributes bypassing fillable/guarded entirely, for trusted,
+  // programmatic data (factories, seeders, internal code) rather than
+  // user-supplied mass assignment — mirrors fill()'s counterpart in
+  // Eloquent-style ORMs.
+  forceFill(attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
       this.setAttribute(k, v);
     }
     return this;

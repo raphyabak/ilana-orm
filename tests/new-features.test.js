@@ -351,6 +351,7 @@ describe('Factory relationship methods', () => {
     constructor(attrs = {}) { this.attributes = attrs; this.exists = false; }
     getKey() { return this.attributes.id; }
     fill(a) { Object.assign(this.attributes, a); return this; }
+    forceFill(a) { Object.assign(this.attributes, a); return this; }
     async save() { this.attributes.id = this.attributes.id || Math.floor(Math.random() * 1000); this.exists = true; return true; }
     static query() { return { where: () => ({ increment: jest.fn(), decrement: jest.fn() }) }; }
   }
@@ -362,6 +363,7 @@ describe('Factory relationship methods', () => {
     constructor(attrs = {}) { this.attributes = attrs; this.exists = false; }
     getKey() { return this.attributes.id; }
     fill(a) { Object.assign(this.attributes, a); return this; }
+    forceFill(a) { Object.assign(this.attributes, a); return this; }
     async save() { this.attributes.id = this.attributes.id || Math.floor(Math.random() * 1000); this.exists = true; return true; }
     author() {
       return {
@@ -378,6 +380,7 @@ describe('Factory relationship methods', () => {
     constructor(attrs = {}) { this.attributes = attrs; this.exists = false; }
     getKey() { return this.attributes.id; }
     fill(a) { Object.assign(this.attributes, a); return this; }
+    forceFill(a) { Object.assign(this.attributes, a); return this; }
     async save() { this.attributes.id = this.attributes.id || Math.floor(Math.random() * 1000); this.exists = true; return true; }
   }
 

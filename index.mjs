@@ -16,6 +16,7 @@ export const {
   Factory,
   defineFactory,
   ModelNotFoundException,
+  MassAssignmentException,
   F,
   Relation,
   HasOne,

@@ -172,7 +172,7 @@ class Factory {
     const modelAttributes = this.makeRaw(attributes);
 
     const model = new this.model();
-    model.fill(modelAttributes);
+    model.forceFill(modelAttributes);
 
     // Run afterMaking callbacks
     for (const callback of this._afterMakingCallbacks) {
@@ -364,7 +364,7 @@ class BulkFactory {
       
       for (let k = 0; k < batchData.length; k++) {
         const model = new this.model();
-        model.fill({ ...batchData[k], id: insertedIds[k] });
+        model.forceFill({ ...batchData[k], id: insertedIds[k] });
         model.exists = true;
         results.push(model);
       }

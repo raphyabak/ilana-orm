@@ -10,7 +10,7 @@ const Seeder = require('./orm/Seeder');
 const Factory = require('./orm/Factory');
 const Relation = require('./orm/Relation');
 const CustomCasts = require('./orm/CustomCasts');
-const { ModelNotFoundException } = require('./orm/Errors');
+const { ModelNotFoundException, MassAssignmentException } = require('./orm/Errors');
 const { F } = require('./orm/F');
 
 module.exports = {
@@ -25,6 +25,7 @@ module.exports = {
   Factory: Factory.Factory,
   defineFactory: Factory.defineFactory,
   ModelNotFoundException,
+  MassAssignmentException,
   F,
 
   // Relationships

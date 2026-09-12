@@ -22,5 +22,13 @@ export declare class ModelNotFoundException extends Error {
   toResponse(): { status: 404; message: string };
 }
 
+export declare class MassAssignmentException extends Error {
+  name: 'MassAssignmentException';
+  model: string;
+  attemptedKeys: string[];
+  constructor(model: string, attemptedKeys: string[]);
+  toResponse(): { status: 422; message: string };
+}
+
 // Default export
 export { default } from './orm/Model';

@@ -15,4 +15,24 @@ class ModelNotFoundException extends Error {
   }
 }
 
-module.exports = { ModelNotFoundException };
+class MassAssignmentException extends Error {
+  constructor(model, attemptedKeys) {
+    const keys = attemptedKeys.join(', ');
+    super(
+      `Mass assignment blocked on ${model}: none of [${keys}] are fillable. ` +
+      `Add the intended column(s) to ${model}.fillable, adjust ${model}.guarded, ` +
+      `or set the attribute(s) directly (e.g. instance.column = value) instead of ` +
+      `going through fill()/update().`
+    );
+    this.name = 'MassAssignmentException';
+    this.model = model;
+    this.attemptedKeys = attemptedKeys;
+    if (Error.captureStackTrace) Error.captureStackTrace(this, MassAssignmentException);
+  }
+
+  toResponse() {
+    return { status: 422, message: this.message };
+  }
+}
+
+module.exports = { ModelNotFoundException, MassAssignmentException };
