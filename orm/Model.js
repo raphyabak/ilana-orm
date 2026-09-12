@@ -57,6 +57,8 @@ class Model {
   _deferred;
 
   constructor(attrs = {}) {
+    this.constructor._autoRegister();
+
     // instance-level fillable/guarded/casts
     this.fillable = Array.isArray(this.fillable) && this.fillable.length
       ? this.fillable
@@ -168,10 +170,21 @@ class Model {
     ModelRegistry.register(this.name, this);
   }
 
+  // Registers this class the first time it's actually used (constructed or
+  // queried), so string-based relations (this.hasMany('Post')) resolve
+  // without requiring an explicit Post.register() call, as long as Post gets
+  // used somewhere before the relation is loaded. Cheap to call repeatedly:
+  // skips the registry write once this class is already registered as itself.
+  static _autoRegister() {
+    if (ModelRegistry.get(this.name) !== this) {
+      ModelRegistry.register(this.name, this);
+    }
+  }
+
   static resolveRelatedModel(related) {
     if (typeof related === 'string') {
       const cls = ModelRegistry.get(related);
-      if (!cls) throw new Error(`Model '${related}' not found. Make sure to call ${related}.register().`);
+      if (!cls) throw new Error(`Model '${related}' not found. It gets registered automatically the first time it's queried or constructed, so require/use ${related} somewhere before this point, or call ${related}.register() explicitly.`);
       return cls;
     }
 
@@ -193,6 +206,7 @@ class Model {
 
   // --- Query builder ---
   static query() {
+    this._autoRegister();
 
     const qb = new QueryBuilder(this.getTableName(), this, this.getConnectionName());
 

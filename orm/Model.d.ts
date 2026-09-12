@@ -76,6 +76,7 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
 
   // Static methods
   static register(): void;
+  static _autoRegister(): void;
   static resolveRelatedModel(related: string | typeof Model): typeof Model;
   static query(): QueryBuilder;
   static with(...relations: string[]): QueryBuilder;
