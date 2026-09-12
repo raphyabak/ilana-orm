@@ -39,6 +39,7 @@ class Model {
   static appends = [];
   static timezone = 'UTC';
   static strictLoading = false;
+  static preventsSilentlyDiscardingAttributes = false;
   static touches = [];
   static enums = {};
   static embeddingColumn = 'embedding';
@@ -462,20 +463,19 @@ class Model {
   getKey() { return this.attributes[this.constructor.primaryKey]; }
 
   fill(attrs) {
-    const keys = Object.keys(attrs);
-    let appliedAny = false;
+    const discarded = [];
     for (const [k, v] of Object.entries(attrs)) {
-      if (!this.isFillable(k)) continue;
+      if (!this.isFillable(k)) { discarded.push(k); continue; }
       this.setAttribute(k, v);
-      appliedAny = true;
     }
-    // Every key was rejected by fillable/guarded — near-certainly a forgotten
-    // `static fillable = [...]` rather than an intentional no-op, since a
-    // real "pass extra harmless keys" call still gets at least one column
-    // through. Silently returning success here previously left update()
-    // looking like it persisted a change when nothing was ever written.
-    if (keys.length > 0 && !appliedAny) {
-      throw new MassAssignmentException(this.constructor.name, keys);
+    // Off by default, matching every prior release: a key rejected by
+    // fillable/guarded is silently dropped, same as always. Opt in per-model
+    // with `static preventsSilentlyDiscardingAttributes = true` to instead
+    // throw on any discarded key — useful for catching a forgotten
+    // `fillable` declaration or a typo'd column name in update() calls,
+    // without changing behavior for anyone who hasn't asked for it.
+    if (discarded.length > 0 && this.constructor.preventsSilentlyDiscardingAttributes) {
+      throw new MassAssignmentException(this.constructor.name, discarded);
     }
     return this;
   }

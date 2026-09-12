@@ -25,8 +25,8 @@ export declare class ModelNotFoundException extends Error {
 export declare class MassAssignmentException extends Error {
   name: 'MassAssignmentException';
   model: string;
-  attemptedKeys: string[];
-  constructor(model: string, attemptedKeys: string[]);
+  discardedKeys: string[];
+  constructor(model: string, discardedKeys: string[]);
   toResponse(): { status: 422; message: string };
 }
 

@@ -730,6 +730,11 @@ class User extends Model {
   fillable = ["name", "email", "password"];
   guarded = ["id", "created_at", "updated_at"];
 
+  // By default, fill()/update() silently drops any key not covered by
+  // fillable/guarded — e.g. update({ typo_column: x }) resolves successfully
+  // and writes nothing. Opt in to catch that instead of silently swallowing it:
+  static preventsSilentlyDiscardingAttributes = true; // throws MassAssignmentException on any discarded key
+
   // Hidden attributes (won't appear in JSON)
   hidden = ["password", "remember_token"];
 
@@ -4555,6 +4560,7 @@ user.replicate(except?); // Clone as unsaved record (excludes PK + timestamps)
 
 // Attributes
 user.fill(attributes); // Mass assign (respects fillable/guarded)
+user.forceFill(attributes); // Mass assign, bypassing fillable/guarded entirely
 user.getAttribute(key); // Get attribute (calls accessor if defined)
 user.setAttribute(key, value); // Set attribute (calls mutator if defined)
 user.getKey(); // Get primary key value

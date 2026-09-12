@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **`Model#forceFill(attributes)`** — mass-assigns attributes bypassing `fillable`/`guarded` entirely, for trusted/programmatic data (factories, seeders, internal code). Mirrors Eloquent's `forceFill()`.
+- **`static preventsSilentlyDiscardingAttributes`** (default `false`) — opt-in per model. When `true`, `fill()`/`update()` throws `MassAssignmentException` on any attribute rejected by `fillable`/`guarded`, instead of silently dropping it. Off by default: existing behavior (silent drop) is unchanged unless you opt in. Mirrors Eloquent's `Model::preventSilentlyDiscardingAttributes()`.
+- **`MassAssignmentException`** — new exported error class, thrown by `fill()`/`update()` when `preventsSilentlyDiscardingAttributes` is enabled and a key is discarded. Has a `toResponse()` returning `{ status: 422, message }`, matching `ModelNotFoundException`'s shape.
+
+### Fixed
+- **`Model.where(...)` and other QueryBuilder methods missing as statics** — only a hand-picked subset of `QueryBuilder` methods (`with`, `findBy`, `latest`, ...) were forwarded as statics on `Model`; calling `User.where(...)` directly (as shown in the docs) threw `TypeError: User.where is not a function`. `Model` now auto-forwards any static call not already defined on the class to `this.query().<method>()` when it matches a real `QueryBuilder` method, closing the whole class of bug rather than just `where()`.
+- **String-based relations requiring manual `.register()`** — `this.hasMany('Post')`-style relations (the form the docs recommend to avoid circular imports) threw `Model 'Post' not found. Make sure to call Post.register().` unless every related model had been registered by hand, which none of the non-polymorphic relationship docs examples show. Models now auto-register themselves the first time they're queried or constructed, which covers any model actually used somewhere in the app.
+
 ## [1.0.19] - 2026-07-02
 
 ### Added

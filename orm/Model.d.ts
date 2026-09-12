@@ -52,6 +52,7 @@ export default class Model<TAttributes extends ModelAttributes = ModelAttributes
   protected static appends: string[];
   protected static timezone: string;
   static strictLoading: boolean;
+  static preventsSilentlyDiscardingAttributes: boolean;
   static touches: string[];
   static enums: { [column: string]: string[] };
   static embeddingColumn: string;

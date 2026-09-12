@@ -16,17 +16,16 @@ class ModelNotFoundException extends Error {
 }
 
 class MassAssignmentException extends Error {
-  constructor(model, attemptedKeys) {
-    const keys = attemptedKeys.join(', ');
+  constructor(model, discardedKeys) {
+    const keys = discardedKeys.join(', ');
     super(
-      `Mass assignment blocked on ${model}: none of [${keys}] are fillable. ` +
-      `Add the intended column(s) to ${model}.fillable, adjust ${model}.guarded, ` +
-      `or set the attribute(s) directly (e.g. instance.column = value) instead of ` +
-      `going through fill()/update().`
+      `Mass assignment blocked on ${model}: [${keys}] are not fillable, so ${model}.preventsSilentlyDiscardingAttributes ` +
+      `stopped the call instead of dropping them silently. Add the intended column(s) to ${model}.fillable, adjust ` +
+      `${model}.guarded, or set the attribute(s) directly (e.g. instance.column = value) instead of going through fill()/update().`
     );
     this.name = 'MassAssignmentException';
     this.model = model;
-    this.attemptedKeys = attemptedKeys;
+    this.discardedKeys = discardedKeys;
     if (Error.captureStackTrace) Error.captureStackTrace(this, MassAssignmentException);
   }
 
